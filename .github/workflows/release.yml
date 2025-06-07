@@ -15,7 +15,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Identify tag and previous tag
+      - name: Identify current and previous tag
         id: taginfo
         run: |
           CUR_TAG="${GITHUB_REF#refs/tags/}"
@@ -25,7 +25,7 @@ jobs:
           PREV_TAG=$(git tag --list "${PREFIX}-*" | sort | grep -v "$CUR_TAG" | tail -1 || true)
           echo "PREVIOUS_TAG=$PREV_TAG" >> $GITHUB_ENV
 
-      - name: Generate release SQL
+      - name: Build release SQL file
         run: |
           OUTFILE="releases/${CURRENT_TAG}.sql"
           echo "-- auto release: ${CURRENT_TAG}" > "$OUTFILE"
@@ -33,23 +33,27 @@ jobs:
 
           echo "-- MIGRATIONS (changes/)" >> "$OUTFILE"
           if [ -z "$PREVIOUS_TAG" ]; then
-            CHANGED_FILES=$(git diff --name-only --diff-filter=A HEAD -- changes/*.sql || true)
+            CHANGED_FILES=$(git diff --name-only --diff-filter=AM HEAD -- changes/*.sql || true)
           else
-            CHANGED_FILES=$(git diff --name-only --diff-filter=A "$PREVIOUS_TAG"...HEAD -- changes/*.sql || true)
+            CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- changes/*.sql || true)
           fi
 
           for f in $CHANGED_FILES; do
-            echo "-- $f" >> "$OUTFILE"
-            cat "$f" >> "$OUTFILE"
-            echo -e "\n" >> "$OUTFILE"
+            if [ -f "$f" ]; then
+              echo "-- $f" >> "$OUTFILE"
+              cat "$f" >> "$OUTFILE"
+              echo -e "\n" >> "$OUTFILE"
+            fi
           done
 
           echo "-- NEW OBJECTS (schema/)" >> "$OUTFILE"
           NEW_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- schema/*.sql | grep '^A' | cut -f2 || true)
           for f in $NEW_SCHEMA; do
-            echo "-- NEW: $f" >> "$OUTFILE"
-            cat "$f" >> "$OUTFILE"
-            echo -e "\n" >> "$OUTFILE"
+            if [ -f "$f" ]; then
+              echo "-- NEW: $f" >> "$OUTFILE"
+              cat "$f" >> "$OUTFILE"
+              echo -e "\n" >> "$OUTFILE"
+            fi
           done
 
           echo "-- MODIFIED OBJECTS (schema/) [AS COMMENTS]" >> "$OUTFILE"
