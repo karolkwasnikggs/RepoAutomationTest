@@ -43,3 +43,5 @@ jobs:
         with:
           commit_message: "auto release ${GITHUB_REF#refs/tags/}"
           file_pattern: "releases/*.sql"
+          branch: main
+
