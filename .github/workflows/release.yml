@@ -1,25 +1,45 @@
 name: build-release-sql
+
 on:
-push:
-tags: [qa-, prod-]
+  push:
+    tags:
+      - 'qa-*'
+      - 'prod-*'
+
 jobs:
-build:
-runs-on: ubuntu-latest
-steps:
-- uses: actions/checkout@v4
-- id: last
-run: |
-prefix=${GITHUB_REF#refs/tags/}
-git tag --list "$prefix" | sort | tail -2 | head -1 >prev.txt || true
-echo "PREV=$(cat prev.txt)" >>$GITHUB_ENV
-- run: |
-if [ -z "$PREV" ]; then git diff --name-only --diff-filter=A HEAD -- changes/.sql >list.txt
-else git diff --name-only --diff-filter=A "$PREV"...HEAD -- changes/.sql >list.txt; fi
-- run: |
-rel=releases/${GITHUB_REF#refs/tags/}.sql
-echo "-- auto release" >$rel
-while read f; do echo "-- $f" >>$rel; cat "$f" >>$rel; echo >>$rel; done <list.txt
-- uses: stefanzweifel/git-auto-commit-action@v5
-with:
-commit_message: auto release ${GITHUB_REF#refs/tags/}
-file_pattern: releases/*.sql
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Identify last tag
+        id: last
+        run: |
+          prefix="${GITHUB_REF#refs/tags/}"
+          git tag --list "$prefix" | sort | tail -2 | head -1 > prev.txt || true
+          echo "PREV=$(cat prev.txt)" >> $GITHUB_ENV
+
+      - name: Get changed files
+        run: |
+          if [ -z "$PREV" ]; then
+            git diff --name-only --diff-filter=A HEAD -- changes/*.sql > list.txt
+          else
+            git diff --name-only --diff-filter=A "$PREV"...HEAD -- changes/*.sql > list.txt
+          fi
+
+      - name: Build release SQL file
+        run: |
+          rel="releases/${GITHUB_REF#refs/tags/}.sql"
+          echo "-- auto release" > "$rel"
+          while read f; do
+            echo "-- $f" >> "$rel"
+            cat "$f" >> "$rel"
+            echo "" >> "$rel"
+          done < list.txt
+
+      - name: Commit release file
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "auto release ${GITHUB_REF#refs/tags/}"
+          file_pattern: "releases/*.sql"
