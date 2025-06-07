@@ -6,6 +6,7 @@ on:
       - 'qa-*'
       - 'prod-*'
       - 'preprod-*'
+      - 'prepreprod-*'
 
 jobs:
   build:
