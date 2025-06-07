@@ -15,23 +15,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Identify tag and previous tag
+      - name: Identify current and previous tag
         id: taginfo
         run: |
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           echo "CURRENT_TAG=$CUR_TAG" >> $GITHUB_ENV
 
-          # extract prefix (qa or prod)
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           PREV_TAG=$(git tag --list "${PREFIX}-*" | sort | grep -v "$CUR_TAG" | tail -1 || true)
           echo "PREVIOUS_TAG=$PREV_TAG" >> $GITHUB_ENV
 
-      - name: Get changed SQL files
+      - name: Get all changed .sql files
         run: |
           if [ -z "$PREVIOUS_TAG" ]; then
-            git diff --name-only --diff-filter=A HEAD -- changes/*.sql > list.txt
+            git diff --name-only HEAD -- changes/*.sql > list.txt
           else
-            git diff --name-only --diff-filter=A "$PREVIOUS_TAG"...HEAD -- changes/*.sql > list.txt
+            git diff --name-only "$PREVIOUS_TAG"...HEAD -- changes/*.sql > list.txt
           fi
 
           echo "Changed files:"
@@ -44,9 +43,11 @@ jobs:
           echo "" >> "$OUTFILE"
 
           while read -r file; do
-            echo "-- $file" >> "$OUTFILE"
-            cat "$file" >> "$OUTFILE"
-            echo -e "\n" >> "$OUTFILE"
+            if [ -f "$file" ]; then
+              echo "-- $file" >> "$OUTFILE"
+              cat "$file" >> "$OUTFILE"
+              echo -e "\n" >> "$OUTFILE"
+            fi
           done < list.txt
 
       - name: Commit release file to main
