@@ -12,36 +12,46 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Identify last tag
-        id: last
+      - name: Identify tag and previous tag
+        id: taginfo
         run: |
-          prefix="${GITHUB_REF#refs/tags/}"
-          git tag --list "$prefix" | sort | tail -2 | head -1 > prev.txt || true
-          echo "PREV=$(cat prev.txt)" >> $GITHUB_ENV
+          CUR_TAG="${GITHUB_REF#refs/tags/}"
+          echo "CURRENT_TAG=$CUR_TAG" >> $GITHUB_ENV
 
-      - name: Get changed files
+          # extract prefix (qa or prod)
+          PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
+          PREV_TAG=$(git tag --list "${PREFIX}-*" | sort | grep -v "$CUR_TAG" | tail -1 || true)
+          echo "PREVIOUS_TAG=$PREV_TAG" >> $GITHUB_ENV
+
+      - name: Get changed SQL files
         run: |
-          if [ -z "$PREV" ]; then
+          if [ -z "$PREVIOUS_TAG" ]; then
             git diff --name-only --diff-filter=A HEAD -- changes/*.sql > list.txt
           else
-            git diff --name-only --diff-filter=A "$PREV"...HEAD -- changes/*.sql > list.txt
+            git diff --name-only --diff-filter=A "$PREVIOUS_TAG"...HEAD -- changes/*.sql > list.txt
           fi
+
+          echo "Changed files:"
+          cat list.txt
 
       - name: Build release SQL file
         run: |
-          rel="releases/${GITHUB_REF#refs/tags/}.sql"
-          echo "-- auto release" > "$rel"
-          while read f; do
-            echo "-- $f" >> "$rel"
-            cat "$f" >> "$rel"
-            echo "" >> "$rel"
+          OUTFILE="releases/${CURRENT_TAG}.sql"
+          echo "-- auto release: $CURRENT_TAG" > "$OUTFILE"
+          echo "" >> "$OUTFILE"
+
+          while read -r file; do
+            echo "-- $file" >> "$OUTFILE"
+            cat "$file" >> "$OUTFILE"
+            echo -e "\n" >> "$OUTFILE"
           done < list.txt
 
-      - name: Commit release file
+      - name: Commit release file to main
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "auto release ${GITHUB_REF#refs/tags/}"
+          commit_message: "auto release ${{ env.CURRENT_TAG }}"
           file_pattern: "releases/*.sql"
           branch: main
-
