@@ -53,7 +53,7 @@ jobs:
           echo "----------------------------------------------" >> "$OUTFILE"
 
           if [ "$FIRST_RELEASE" = "false" ]; then
-            CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- changes/**/*.sql || true)
+            CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes -type f -name "*.sql") || true)
           else
             CHANGED_FILES=$(find changes -type f -name "*.sql" || true)
           fi
@@ -78,7 +78,10 @@ jobs:
               echo -e "\n\n" >> "$OUTFILE"
             done
           else
-            NEW_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- schema/**/*.sql | grep '^A' | cut -f2 || true)
+            FILES_IN_SCHEMA=$(find schema -type f -name "*.sql" || true)
+            NEW_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- $FILES_IN_SCHEMA | grep '^A' | cut -f2 || true)
+            MOD_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- $FILES_IN_SCHEMA | grep '^M' | cut -f2 || true)
+
             for f in $NEW_SCHEMA; do
               if [ -f "$f" ]; then
                 echo "-- NEW OBJECT: $f" >> "$OUTFILE"
@@ -89,7 +92,6 @@ jobs:
             done
 
             echo "-- MODIFIED OBJECTS (schema/) AS COMMENTS" >> "$OUTFILE"
-            MOD_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- schema/**/*.sql | grep '^M' | cut -f2 || true)
             for f in $MOD_SCHEMA; do
               echo "-- MODIFIED OBJECT: $f" >> "$OUTFILE"
               echo "-- BEGIN DIFF --------------------------------" >> "$OUTFILE"
