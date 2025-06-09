@@ -1,0 +1,45 @@
+name: Generate releases.json
+
+on:
+  push:
+    tags:
+      - 'qa-*'
+      - 'prod-*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .releases/releases.json
+        run: |
+          mkdir -p .releases
+          echo "[" > .releases/releases.json
+
+          for folder in qa prod; do
+            for f in .releases/$folder/*.txt; do
+              [ -f "$f" ] || continue
+              tag=$(basename "$f" .txt)
+              timestamp=$(echo "$tag" | grep -o '[0-9]\+')
+              content=$(sed 's/"/\\"/g' "$f" | awk '{ print "    \"" $0 "\"," }')
+              echo "  {" >> .releases/releases.json
+              echo "    \"tag\": \"$tag\"," >> .releases/releases.json
+              echo "    \"type\": \"$folder\"," >> .releases/releases.json
+              echo "    \"timestamp\": $timestamp," >> .releases/releases.json
+              echo "    \"content\": \"$(sed ':a;N;$!ba;s/\\n/\\\\n/g' \"$f\" | sed 's/\"/\\"/g')\"" >> .releases/releases.json
+              echo "  }," >> .releases/releases.json
+            done
+          done
+
+          # remove last comma and close array
+          sed -i '$ s/},/}/' .releases/releases.json
+          echo "]" >> .releases/releases.json
+
+      - name: Commit releases.json
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "update releases.json"
+          file_pattern: ".releases/releases.json"
+          branch: main
