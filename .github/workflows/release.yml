@@ -37,11 +37,11 @@ jobs:
       - name: Build release SQL and map HTML
         run: |
           set -e -x
-          mkdir -p releases .releases/qa map
+          mkdir -p releases .releases/qa docs
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           OUTFILE="releases/${CUR_TAG}.sql"
-          MAP_HTML="map/index.html"
+          MAP_HTML="docs/index.html"
           NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           echo "/********************************************/" > "$OUTFILE"
@@ -109,7 +109,7 @@ jobs:
             done < "$TEMP_LIST.uniq"
           fi
 
-          # generate map/index.html
+          # generate docs/index.html
           echo "<html><head><title>Release Map</title></head><body><h1>Release Map</h1><ul>" > "$MAP_HTML"
           for tagfile in $(ls .releases/qa/*.txt 2>/dev/null | sort); do
             tag=$(basename "$tagfile" .txt)
@@ -135,5 +135,5 @@ jobs:
           commit_message: "auto release ${{ env.CURRENT_TAG }}"
           file_pattern: |
             releases/*.sql
-            map/index.html
+            docs/index.html
           branch: main
