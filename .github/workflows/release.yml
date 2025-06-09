@@ -73,8 +73,9 @@ jobs:
             done
 
             FILES_JSON=$(printf '%s\n' $CHANGED_FILES | jq -R . | jq -s .)
+            cp "$MAP_FILE" "$TMP_MAP"
             jq --arg tag "$CUR_TAG" --arg time "$NOW" --arg type "qa" --argjson files "$FILES_JSON" \
-              '. += [{"tag": $tag, "timestamp": $time, "type": $type, "files": $files}]' "$MAP_FILE" > "$TMP_MAP" && mv "$TMP_MAP" "$MAP_FILE"
+              '. += [{"tag": $tag, "timestamp": $time, "type": $type, "files": $files}]' "$TMP_MAP" > "$MAP_FILE"
 
           elif [[ "$PREFIX" == "prod" ]]; then
             echo "-- PROD RELEASE" >> "$OUTFILE"
@@ -118,9 +119,9 @@ jobs:
 
             FILES_JSON=$(cat "$TEMP_LIST.uniq" | jq -R . | jq -s .)
             QA_JSON=$(printf '%s\n' "${INCLUDED_QA[@]}" | jq -R . | jq -s .)
+            cp "$MAP_FILE" "$TMP_MAP"
             jq --arg tag "$CUR_TAG" --arg time "$NOW" --arg type "prod" --argjson files "$FILES_JSON" --argjson included_qa "$QA_JSON" \
-              '. += [{"tag": $tag, "timestamp": $time, "type": $type, "files": $files, "included_qa": $included_qa}]' "$MAP_FILE" > "$TMP_MAP" && mv "$TMP_MAP" "$MAP_FILE"
-
+              '. += [{"tag": $tag, "timestamp": $time, "type": $type, "files": $files, "included_qa": $included_qa}]' "$TMP_MAP" > "$MAP_FILE"
           fi
 
           echo "--- map.json content ---"
