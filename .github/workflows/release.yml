@@ -15,7 +15,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Identify current, previous QA/PROD tag
+      - name: Identify current, previous tag and target range
         id: taginfo
         run: |
           CUR_TAG="${GITHUB_REF#refs/tags/}"
@@ -24,21 +24,23 @@ jobs:
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           echo "PREFIX=$PREFIX" >> $GITHUB_ENV
 
-          if [ "$PREFIX" = "qa" ]; then
-            PREV_TAG=$(git tag --list "qa-*" | sort | grep -v "$CUR_TAG" | tail -1)
-          elif [ "$PREFIX" = "prod" ]; then
-            PREV_QA=$(git tag --list "qa-*" | sort)
-            LAST_PROD=$(git tag --list "prod-*" | sort | grep -v "$CUR_TAG" | tail -1)
-            QA_TAGS_RANGE=$(git tag --sort=creatordate | awk "/$LAST_PROD/{found=1;next} found && /qa-/{print}" || true)
-            echo "$QA_TAGS_RANGE" > qas_to_include.txt
-            PREV_TAG="$LAST_PROD"
+          if [[ "$PREFIX" == "prod" ]]; then
+            QA_TAGS=$(git tag --list 'qa-*' | sort)
+            LAST_PROD=$(git tag --list 'prod-*' | sort | grep -v "$CUR_TAG" | tail -1)
+            RANGE_START=$LAST_PROD
+            RANGE_END=$(echo "$QA_TAGS" | tail -1)
+          else
+            RANGE_START=$(git tag --list "${PREFIX}-*" | sort | grep -v "$CUR_TAG" | tail -1)
+            RANGE_END="HEAD"
           fi
 
-          if [ -z "$PREV_TAG" ]; then
+          echo "RANGE_START=$RANGE_START" >> $GITHUB_ENV
+          echo "RANGE_END=$RANGE_END" >> $GITHUB_ENV
+
+          if [ -z "$RANGE_START" ]; then
             echo "FIRST_RELEASE=true" >> $GITHUB_ENV
           else
             echo "FIRST_RELEASE=false" >> $GITHUB_ENV
-            echo "PREVIOUS_TAG=$PREV_TAG" >> $GITHUB_ENV
           fi
 
       - name: Build release SQL file
@@ -47,7 +49,7 @@ jobs:
           echo "/********************************************/" > "$OUTFILE"
           echo "-- AUTO RELEASE: ${CURRENT_TAG}" >> "$OUTFILE"
           if [ "$FIRST_RELEASE" = "false" ]; then
-            echo "-- DIFF: ${PREVIOUS_TAG} -> ${CURRENT_TAG}" >> "$OUTFILE"
+            echo "-- DIFF: ${RANGE_START} -> ${RANGE_END}" >> "$OUTFILE"
           else
             echo "-- FIRST RELEASE for environment: ${PREFIX}" >> "$OUTFILE"
           fi
@@ -58,19 +60,10 @@ jobs:
           echo "-- SECTION: MIGRATIONS (changes/)" >> "$OUTFILE"
           echo "----------------------------------------------" >> "$OUTFILE"
 
-          if [ "$PREFIX" = "qa" ]; then
-            if [ "$FIRST_RELEASE" = "true" ]; then
-              CHANGED_FILES=$(find changes -type f -name "*.sql" || true)
-            else
-              CHANGED_FILES=$(git diff --name-only --diff-filter=ACM "$PREVIOUS_TAG"...HEAD -- 'changes/**/*.sql' || true)
-            fi
-          elif [ "$PREFIX" = "prod" ]; then
-            CHANGED_FILES=""
-            while read -r qa_tag; do
-              FILES=$(git diff --name-only "$qa_tag"^.."$qa_tag" -- 'changes/**/*.sql' || true)
-              CHANGED_FILES="$CHANGED_FILES"$'\n'"$FILES"
-            done < qas_to_include.txt
-            CHANGED_FILES=$(echo "$CHANGED_FILES" | sort | uniq)
+          if [ "$FIRST_RELEASE" = "false" ]; then
+            CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$RANGE_START"..."$RANGE_END" -- changes/**/*.sql || true)
+          else
+            CHANGED_FILES=$(find changes -type f -name "*.sql" || true)
           fi
 
           for f in $CHANGED_FILES; do
@@ -93,7 +86,7 @@ jobs:
               echo -e "\n\n" >> "$OUTFILE"
             done
           else
-            NEW_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- 'schema/**/*.sql' | grep '^A' | cut -f2 || true)
+            NEW_SCHEMA=$(git diff --name-status "$RANGE_START"..."$RANGE_END" -- schema/**/*.sql | grep '^A' | cut -f2 || true)
             for f in $NEW_SCHEMA; do
               if [ -f "$f" ]; then
                 echo "-- NEW OBJECT: $f" >> "$OUTFILE"
@@ -104,11 +97,11 @@ jobs:
             done
 
             echo "-- MODIFIED OBJECTS (schema/) AS COMMENTS" >> "$OUTFILE"
-            MOD_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- 'schema/**/*.sql' | grep '^M' | cut -f2 || true)
+            MOD_SCHEMA=$(git diff --name-status "$RANGE_START"..."$RANGE_END" -- schema/**/*.sql | grep '^M' | cut -f2 || true)
             for f in $MOD_SCHEMA; do
               echo "-- MODIFIED OBJECT: $f" >> "$OUTFILE"
               echo "-- BEGIN DIFF --------------------------------" >> "$OUTFILE"
-              git diff "$PREVIOUS_TAG"...HEAD -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
+              git diff "$RANGE_START"..."$RANGE_END" -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
               echo "-- END DIFF ----------------------------------" >> "$OUTFILE"
               echo -e "\n\n" >> "$OUTFILE"
             done
