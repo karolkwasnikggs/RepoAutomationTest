@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Release Timeline</title>
-  <link href="https://fonts.googleapis.com/css2?family=Chivo:wght@300;400;700&family=Saira&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css?family=Chivo:300,400,700&display=swap" rel="stylesheet">
   <style>
     body {
       background: #252827;
@@ -12,59 +12,65 @@
       padding: 40px;
     }
     h1 {
-      font-family: 'Saira', sans-serif;
+      font-family: 'Chivo', sans-serif;
       letter-spacing: 1.5px;
       text-align: center;
       font-weight: 400;
       font-size: 2.4em;
       color: white;
     }
+    #timeline-content {
+      max-width: 700px;
+      margin: 50px auto;
+    }
     ul.timeline {
       border-left: 4px solid #004ffc;
-      margin: 50px auto;
-      padding: 50px;
-      list-style: none;
-      position: relative;
-      max-width: 600px;
-      background: rgba(255,255,255,0.03);
       border-radius: 4px;
+      list-style: none;
+      margin: 0;
+      padding: 40px;
+      background: rgba(255,255,255,0.03);
+      position: relative;
     }
     .timeline .event {
       position: relative;
-      margin-bottom: 50px;
       padding-left: 30px;
-      border-left: 1px dashed rgba(255,255,255,0.2);
+      margin-bottom: 50px;
+      border-left: 1px dashed rgba(255,255,255,0.1);
+    }
+    .timeline .event:last-of-type {
+      margin-bottom: 0;
+      border: none;
     }
     .timeline .event::before {
       content: attr(data-date);
       position: absolute;
-      left: -140px;
+      left: -130px;
       top: 0;
-      width: 120px;
+      width: 110px;
       text-align: right;
       font-size: 0.9em;
       color: rgba(255,255,255,0.4);
-      font-family: 'Saira', sans-serif;
     }
     .timeline .event::after {
       content: "";
       position: absolute;
       left: -8px;
-      top: 5px;
+      top: 6px;
       background: #004ffc;
       border-radius: 50%;
       width: 12px;
       height: 12px;
+      box-shadow: 0 0 0 4px rgba(0,79,252,0.3);
     }
     .timeline .event h3 {
       margin: 0;
-      font-size: 1.2em;
+      font-size: 1.3em;
       color: white;
       font-weight: 400;
-      font-family: 'Saira', sans-serif;
     }
     .timeline .event p {
-      margin: 5px 0 0;
+      margin-top: 8px;
       color: #ccc;
       font-weight: 300;
       white-space: pre-wrap;
@@ -72,18 +78,26 @@
   </style>
 </head>
 <body>
-  <h1>QA & PROD Timeline</h1>
-  <ul class="timeline" id="timeline"></ul>
+  <div id="timeline-content">
+    <h1>QA & PROD Timeline</h1>
+    <ul class="timeline" id="timeline"></ul>
+  </div>
 
   <script>
-const owner = "karolkwasnikggs";
+    const owner = "karolkwasnikggs"; // <- ZMIEŃ NA SWOJE
     const repo = "RepoAutomationTest";
     const branch = "main";
-
+// ustawione na RepoAutomationTest
     async function getTags(folder) {
-      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.releases/${folder}?ref=${branch}`);
+      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.releases/${folder}?ref=${branch}`, {
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'Authorization': 'token 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'
+        }
+      });
       if (!res.ok) return [];
       const data = await res.json();
+      if (!Array.isArray(data)) return [];
 
       const result = [];
       for (const f of data.filter(f => f.name.endsWith('.txt'))) {
@@ -91,7 +105,11 @@ const owner = "karolkwasnikggs";
         const timestamp = parseInt(f.name.match(/\d+/)?.[0] || '0', 10);
         let content = "";
         try {
-          const contentRes = await fetch(f.download_url);
+          const contentRes = await fetch(f.download_url, {
+            headers: {
+              'Authorization': 'token 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'
+            }
+          });
           content = await contentRes.text();
         } catch (e) {
           content = "(unable to fetch content)";
@@ -114,7 +132,7 @@ const owner = "karolkwasnikggs";
         li.setAttribute("data-date", entry.tag);
 
         const h3 = document.createElement("h3");
-        h3.textContent = entry.type.toUpperCase() + " Release";
+        h3.textContent = `${entry.type.toUpperCase()} Release`;
 
         const p = document.createElement("p");
         p.textContent = entry.content || "(empty)";
