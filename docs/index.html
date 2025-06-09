@@ -78,13 +78,21 @@
       const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.releases/${folder}?ref=${branch}`);
       if (!res.ok) return [];
       const data = await res.json();
-      return await Promise.all(data.filter(f => f.name.endsWith('.txt')).map(async f => {
+
+      const result = [];
+      for (const f of data.filter(f => f.name.endsWith('.txt'))) {
         const tag = f.name.replace('.txt', '');
         const timestamp = parseInt(f.name.match(/\d+/)?.[0] || '0', 10);
-        const contentRes = await fetch(f.download_url);
-        const content = await contentRes.ok ? contentRes.text() : "";
-        return { tag, timestamp, type: folder, content };
-      }));
+        let content = "";
+        try {
+          const contentRes = await fetch(f.download_url);
+          content = await contentRes.text();
+        } catch (e) {
+          content = "(unable to fetch content)";
+        }
+        result.push({ tag, timestamp, type: folder, content });
+      }
+      return result;
     }
 
     async function renderTimeline() {
@@ -97,7 +105,11 @@
       all.forEach((entry, index) => {
         const div = document.createElement("div");
         div.className = `box ${entry.type}`;
-        div.innerHTML = `${entry.tag}<div class="tooltip">${entry.content || "(empty)"}</div>`;
+        const tooltip = document.createElement("div");
+        tooltip.className = "tooltip";
+        tooltip.textContent = entry.content || "(empty)";
+        div.textContent = entry.tag;
+        div.appendChild(tooltip);
         timeline.appendChild(div);
 
         if (index < all.length - 1) {
