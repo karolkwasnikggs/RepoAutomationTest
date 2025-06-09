@@ -54,17 +54,16 @@ jobs:
             mkdir -p .releases/qa
 
             if [ "$FIRST_RELEASE" = "false" ]; then
-              CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes -type f -name "*.sql") $(find schema -type f -name "*.sql") || true)
+              CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- 'changes/*.sql' 'schema/*.sql' || true)
             else
               CHANGED_FILES=$(find changes -type f -name "*.sql"; find schema -type f -name "*.sql" || true)
             fi
 
-            echo "$CHANGED_FILES" > ".releases/qa/${CUR_TAG}.txt"
-
+            > ".releases/qa/${CUR_TAG}.txt"
             for f in $CHANGED_FILES; do
+              echo "$f" >> ".releases/qa/${CUR_TAG}.txt"
               if [[ "$f" == changes/* && -f "$f" ]]; then
                 echo "-- FILE: $f" >> "$OUTFILE"
-                echo "" >> "$OUTFILE"
                 cat "$f" >> "$OUTFILE"
                 echo -e "\n\n" >> "$OUTFILE"
               fi
@@ -82,25 +81,22 @@ jobs:
               done
             else
               FILES_IN_SCHEMA=$(find schema -type f -name "*.sql" || true)
-              NEW_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- $FILES_IN_SCHEMA | grep '^A' | cut -f2 || true)
-              MOD_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- $FILES_IN_SCHEMA | grep '^M' | cut -f2 || true)
-
-              for f in $NEW_SCHEMA; do
-                if [ -f "$f" ]; then
+              for f in $FILES_IN_SCHEMA; do
+                STATUS=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- "$f" | cut -f1)
+                if [[ "$STATUS" == "A" || "$STATUS" == "M" ]]; then
+                  echo "$f" >> ".releases/qa/${CUR_TAG}.txt"
+                fi
+                if [[ "$STATUS" == "A" && -f "$f" ]]; then
                   echo "-- NEW OBJECT: $f" >> "$OUTFILE"
-                  echo "" >> "$OUTFILE"
                   cat "$f" >> "$OUTFILE"
                   echo -e "\n\n" >> "$OUTFILE"
+                elif [[ "$STATUS" == "M" && -f "$f" ]]; then
+                  echo "-- MODIFIED OBJECT: $f" >> "$OUTFILE"
+                  echo "-- BEGIN DIFF --------------------------------" >> "$OUTFILE"
+                  git diff "$PREVIOUS_TAG"...HEAD -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
+                  echo "-- END DIFF ----------------------------------" >> "$OUTFILE"
+                  echo -e "\n\n" >> "$OUTFILE"
                 fi
-              done
-
-              echo "-- MODIFIED OBJECTS (schema/) AS COMMENTS" >> "$OUTFILE"
-              for f in $MOD_SCHEMA; do
-                echo "-- MODIFIED OBJECT: $f" >> "$OUTFILE"
-                echo "-- BEGIN DIFF --------------------------------" >> "$OUTFILE"
-                git diff "$PREVIOUS_TAG"...HEAD -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
-                echo "-- END DIFF ----------------------------------" >> "$OUTFILE"
-                echo -e "\n\n" >> "$OUTFILE"
               done
             fi
 
@@ -141,7 +137,11 @@ jobs:
             echo "-- SECTION: SCHEMA (from QA releases)" >> "$OUTFILE"
             echo "----------------------------------------------" >> "$OUTFILE"
 
-            PREV_PROD_COMMIT=$(git rev-list -n 1 "$PREV_PROD")
+            if [ -n "$PREV_PROD" ]; then
+              PREV_PROD_COMMIT=$(git rev-list -n 1 "$PREV_PROD")
+            else
+              PREV_PROD_COMMIT=""
+            fi
 
             while read -r f; do
               if [[ "$f" == schema/* && -f "$f" ]]; then
