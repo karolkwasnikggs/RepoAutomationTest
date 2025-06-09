@@ -59,6 +59,7 @@ jobs:
             fi
 
             echo "$CHANGED_FILES" > ".releases/qa/${CUR_TAG}.txt"
+            touch ".releases/qa/${CUR_TAG}.txt"
 
             for f in $CHANGED_FILES; do
               if [[ "$f" == changes/* && -f "$f" ]]; then
@@ -107,6 +108,9 @@ jobs:
                 echo -e "\n\n" >> "$OUTFILE"
               fi
             done < "$TEMP_LIST.uniq"
+
+            touch ".releases/qa/${CUR_TAG}.txt"
+
           fi
 
           # generate docs/index.html
@@ -121,19 +125,12 @@ jobs:
           done
           echo "</ul></body></html>" >> "$MAP_HTML"
 
-      - name: Commit QA file list if needed
-        if: env.PREFIX == 'qa'
+      - name: Commit QA file list and map
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "save QA release file list: ${{ env.CURRENT_TAG }}"
-          file_pattern: ".releases/qa/*.txt"
-          branch: main
-
-      - name: Commit release file and map
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "auto release ${{ env.CURRENT_TAG }}"
+          commit_message: "save release and map for ${{ env.CURRENT_TAG }}"
           file_pattern: |
+            .releases/qa/*.txt
             releases/*.sql
             docs/index.html
           branch: main
