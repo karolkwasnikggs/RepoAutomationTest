@@ -2,88 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>QA and PROD Timeline</title>
+  <title>QA & PROD Release Timeline</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    canvas { max-width: 100%; }
+    body { font-family: sans-serif; padding: 40px; background: #f5f5f5; }
+    canvas { max-width: 1000px; margin: auto; display: block; background: white; border-radius: 12px; padding: 20px; }
   </style>
 </head>
 <body>
-  <h1>QA and PROD Release Timeline</h1>
-  <canvas id="releaseChart" width="900" height="600"></canvas>
+  <h1 style="text-align: center;">QA & PROD Linear Release Timeline</h1>
+  <canvas id="releaseTimeline" width="1000" height="200"></canvas>
 
   <script>
     const owner = "karolkwasnikggs";
     const repo = "RepoAutomationTest";
     const branch = "main";
 
-    async function getReleases(type) {
-      const url = `https://api.github.com/repos/${owner}/${repo}/contents/.releases/${type}?ref=${branch}`;
-      const res = await fetch(url);
+    async function getTags(folder) {
+      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.releases/${folder}?ref=${branch}`);
       if (!res.ok) return [];
       const data = await res.json();
-      return data
-        .filter(f => f.name.endsWith('.txt'))
+      return data.filter(f => f.name.endsWith('.txt'))
         .map(f => {
-          const date = f.name.match(/\\d+/)?.[0];
-          return {
-            tag: f.name.replace('.txt', ''),
-            date: date,
-            label: `${type.toUpperCase()} - ${date}`,
-            type: type
-          };
+          const tag = f.name.replace('.txt', '');
+          const timestamp = parseInt(f.name.match(/\d+/)?.[0] || '0', 10);
+          return { tag, timestamp, type: folder };
         });
     }
 
-    async function drawChart() {
-      const qa = await getReleases("qa");
-      const prod = await getReleases("prod");
+    async function drawLinearTimeline() {
+      const qa = await getTags("qa");
+      const prod = await getTags("prod");
+      const all = [...qa, ...prod].sort((a, b) => a.timestamp - b.timestamp);
 
-      const all = [...qa, ...prod]
-        .filter(e => e.date)
-        .sort((a, b) => a.date.localeCompare(b.date));
+      const labels = all.map(t => t.tag);
+      const colors = all.map(t => t.type === 'qa' ? '#4e79a7' : '#f28e2c');
 
-      const labels = all.map(e => e.label);
-      const data = all.map((_, i) => i + 1); // Y values
-      const backgroundColors = all.map(e => e.type === "qa" ? "#4e79a7" : "#f28e2c");
-
-      const ctx = document.getElementById("releaseChart").getContext("2d");
-      new Chart(ctx, {
+      new Chart(document.getElementById('releaseTimeline'), {
         type: 'bar',
         data: {
           labels,
           datasets: [{
-            label: 'Releases',
-            data,
-            backgroundColor: backgroundColors
+            label: 'Release',
+            data: Array(labels.length).fill(1),
+            backgroundColor: colors,
+            borderSkipped: false,
+            borderRadius: 5
           }]
         },
         options: {
-          indexAxis: 'y',
+          indexAxis: 'x',
           responsive: true,
-          scales: {
-            x: { display: false },
-            y: {
-              ticks: {
-                autoSkip: false,
-                font: { size: 14 }
-              }
-            }
-          },
           plugins: {
             legend: { display: false },
             tooltip: {
               callbacks: {
-                label: ctx => ctx.label
+                label: ctx => ` ${ctx.label} (${all[ctx.dataIndex].type.toUpperCase()})`
               }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                autoSkip: false,
+                maxRotation: 90,
+                minRotation: 45
+              }
+            },
+            y: {
+              display: false
             }
           }
         }
       });
     }
 
-    drawChart();
+    drawLinearTimeline();
   </script>
 </body>
 </html>
