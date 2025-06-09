@@ -5,4 +5,4 @@ asdasdsa
 
 
 
-alter table bla bla
+alter table bla bla another bla
