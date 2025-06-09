@@ -17,7 +17,6 @@ jobs:
           fetch-tags: true
 
       - name: Identify current and previous tag
-        id: taginfo
         run: |
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           echo "CURRENT_TAG=$CUR_TAG" >> $GITHUB_ENV
@@ -34,29 +33,31 @@ jobs:
             echo "FIRST_RELEASE=false" >> $GITHUB_ENV
           fi
 
-      - name: Build release SQL file
+      - name: Build release SQL + register map
         run: |
-          mkdir -p releases
           CUR_TAG="${GITHUB_REF#refs/tags/}"
-          OUTFILE="releases/${CUR_TAG}.sql"
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
+          OUTFILE="releases/${CUR_TAG}.sql"
+          mkdir -p releases .releases/qa
 
           echo "/********************************************/" > "$OUTFILE"
           echo "-- AUTO RELEASE: ${CUR_TAG}" >> "$OUTFILE"
           echo "/********************************************/" >> "$OUTFILE"
           echo "" >> "$OUTFILE"
 
-          if [[ "$PREFIX" == "qa" ]]; then
-            echo "----------------------------------------------" >> "$OUTFILE"
-            echo "-- SECTION: MIGRATIONS (changes/)" >> "$OUTFILE"
-            echo "----------------------------------------------" >> "$OUTFILE"
+          MAP_FILE=".releases/map.json"
+          TMP_MAP=".releases/map.tmp.json"
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-            mkdir -p .releases/qa
+          if [ ! -f "$MAP_FILE" ]; then echo "[]" > "$MAP_FILE"; fi
+
+          if [[ "$PREFIX" == "qa" ]]; then
+            echo "-- QA RELEASE" >> "$OUTFILE"
 
             if [ "$FIRST_RELEASE" = "false" ]; then
-              CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes -type f -name "*.sql") $(find schema -type f -name "*.sql") || true)
+              CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes schema -type f -name "*.sql") || true)
             else
-              CHANGED_FILES=$(find changes -type f -name "*.sql"; find schema -type f -name "*.sql" || true)
+              CHANGED_FILES=$(find changes schema -type f -name "*.sql" || true)
             fi
 
             echo "$CHANGED_FILES" > ".releases/qa/${CUR_TAG}.txt"
@@ -64,64 +65,33 @@ jobs:
             for f in $CHANGED_FILES; do
               if [[ "$f" == changes/* && -f "$f" ]]; then
                 echo "-- FILE: $f" >> "$OUTFILE"
-                echo "" >> "$OUTFILE"
                 cat "$f" >> "$OUTFILE"
                 echo -e "\n\n" >> "$OUTFILE"
               fi
             done
 
-            echo "----------------------------------------------" >> "$OUTFILE"
-            echo "-- SECTION: SCHEMA (FULL if first release)" >> "$OUTFILE"
-            echo "----------------------------------------------" >> "$OUTFILE"
-
-            if [ "$FIRST_RELEASE" = "true" ]; then
-              for f in $(find schema -type f -name "*.sql" || true); do
-                echo "-- SCHEMA OBJECT: $f" >> "$OUTFILE"
-                cat "$f" >> "$OUTFILE"
-                echo -e "\n\n" >> "$OUTFILE"
-              done
-            else
-              FILES_IN_SCHEMA=$(find schema -type f -name "*.sql" || true)
-              NEW_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- $FILES_IN_SCHEMA | grep '^A' | cut -f2 || true)
-              MOD_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- $FILES_IN_SCHEMA | grep '^M' | cut -f2 || true)
-
-              for f in $NEW_SCHEMA; do
-                if [ -f "$f" ]; then
-                  echo "-- NEW OBJECT: $f" >> "$OUTFILE"
-                  echo "" >> "$OUTFILE"
-                  cat "$f" >> "$OUTFILE"
-                  echo -e "\n\n" >> "$OUTFILE"
-                fi
-              done
-
-              echo "-- MODIFIED OBJECTS (schema/) AS COMMENTS" >> "$OUTFILE"
-              for f in $MOD_SCHEMA; do
-                echo "-- MODIFIED OBJECT: $f" >> "$OUTFILE"
-                echo "-- BEGIN DIFF --------------------------------" >> "$OUTFILE"
-                git diff "$PREVIOUS_TAG"...HEAD -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
-                echo "-- END DIFF ----------------------------------" >> "$OUTFILE"
-                echo -e "\n\n" >> "$OUTFILE"
-              done
-            fi
+            FILES_JSON=$(printf '%s\n' $CHANGED_FILES | jq -R . | jq -s .)
+            jq --arg tag "$CUR_TAG" --arg time "$NOW" --arg type "qa" --argjson files "$FILES_JSON" \
+              '. += [{"tag": $tag, "timestamp": $time, "type": $type, "files": $files}]' "$MAP_FILE" > "$TMP_MAP" && mv "$TMP_MAP" "$MAP_FILE"
 
           elif [[ "$PREFIX" == "prod" ]]; then
-            echo "----------------------------------------------" >> "$OUTFILE"
-            echo "-- SECTION: MIGRATIONS (from QA releases)" >> "$OUTFILE"
-            echo "----------------------------------------------" >> "$OUTFILE"
+            echo "-- PROD RELEASE" >> "$OUTFILE"
 
             PREV_PROD=$(git tag --list 'prod-*' | sort | grep -v "$CUR_TAG" | tail -1)
-            TEMP_LIST=".temp_qa_files.txt"
+            TEMP_LIST=".temp_files.txt"
             > "$TEMP_LIST"
+            INCLUDED_QA=()
 
             for qa_file in $(ls .releases/qa/*.txt 2>/dev/null | sort); do
               QA_TAG=$(basename "$qa_file" .txt)
               QA_COMMIT=$(git rev-list -n 1 "$QA_TAG")
               if [ -n "$PREV_PROD" ]; then
-                PREV_PROD_COMMIT=$(git rev-list -n 1 "$PREV_PROD")
-                if git merge-base --is-ancestor "$QA_COMMIT" "$PREV_PROD_COMMIT"; then
+                PREV_COMMIT=$(git rev-list -n 1 "$PREV_PROD")
+                if git merge-base --is-ancestor "$QA_COMMIT" "$PREV_COMMIT"; then
                   continue
                 fi
               fi
+              INCLUDED_QA+=("$QA_TAG")
               cat "$qa_file" >> "$TEMP_LIST"
             done
 
@@ -135,10 +105,7 @@ jobs:
               fi
             done < "$TEMP_LIST.uniq"
 
-            echo "----------------------------------------------" >> "$OUTFILE"
-            echo "-- SECTION: SCHEMA (from QA releases)" >> "$OUTFILE"
-            echo "----------------------------------------------" >> "$OUTFILE"
-
+            echo "-- SCHEMA CHANGES" >> "$OUTFILE"
             while read -r f; do
               if [[ "$f" == schema/* && -f "$f" ]]; then
                 echo "-- OBJECT: $f" >> "$OUTFILE"
@@ -146,6 +113,11 @@ jobs:
                 echo -e "\n\n" >> "$OUTFILE"
               fi
             done < "$TEMP_LIST.uniq"
+
+            FILES_JSON=$(cat "$TEMP_LIST.uniq" | jq -R . | jq -s .)
+            QA_JSON=$(printf '%s\n' "${INCLUDED_QA[@]}" | jq -R . | jq -s .)
+            jq --arg tag "$CUR_TAG" --arg time "$NOW" --arg type "prod" --argjson files "$FILES_JSON" --argjson included_qa "$QA_JSON" \
+              '. += [{"tag": $tag, "timestamp": $time, "type": $type, "files": $files, "included_qa": $included_qa}]' "$MAP_FILE" > "$TMP_MAP" && mv "$TMP_MAP" "$MAP_FILE"
           fi
 
       - name: Commit QA file list if needed
@@ -156,9 +128,11 @@ jobs:
           file_pattern: ".releases/qa/*.txt"
           branch: main
 
-      - name: Commit release file to main
+      - name: Commit release + map
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "auto release ${{ env.CURRENT_TAG }}"
-          file_pattern: "releases/*.sql"
+          file_pattern: |
+            releases/*.sql
+            .releases/map.json
           branch: main
