@@ -141,11 +141,22 @@ jobs:
             echo "-- SECTION: SCHEMA (from QA releases)" >> "$OUTFILE"
             echo "----------------------------------------------" >> "$OUTFILE"
 
+            PREV_PROD_COMMIT=$(git rev-list -n 1 "$PREV_PROD")
+
             while read -r f; do
               if [[ "$f" == schema/* && -f "$f" ]]; then
-                echo "-- OBJECT: $f" >> "$OUTFILE"
-                cat "$f" >> "$OUTFILE"
-                echo -e "\n\n" >> "$OUTFILE"
+                STATUS=$(git diff --name-status "$PREV_PROD_COMMIT"...HEAD -- "$f" | cut -f1)
+                if [[ "$STATUS" == "A" ]]; then
+                  echo "-- NEW OBJECT: $f" >> "$OUTFILE"
+                  cat "$f" >> "$OUTFILE"
+                  echo -e "\n\n" >> "$OUTFILE"
+                elif [[ "$STATUS" == "M" ]]; then
+                  echo "-- MODIFIED OBJECT: $f" >> "$OUTFILE"
+                  echo "-- BEGIN DIFF --------------------------------" >> "$OUTFILE"
+                  git diff "$PREV_PROD_COMMIT"...HEAD -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
+                  echo "-- END DIFF ----------------------------------" >> "$OUTFILE"
+                  echo -e "\n\n" >> "$OUTFILE"
+                fi
               fi
             done < "$TEMP_LIST.uniq"
           fi
