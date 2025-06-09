@@ -5,20 +5,18 @@ on:
     tags:
       - 'qa-*'
       - 'prod-*'
-      - 'preprod-*'
-      - 'prepreprod-*'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Identify current and previous tag
-        id: taginfo
+      - name: Determine context
+        id: context
         run: |
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           echo "CURRENT_TAG=$CUR_TAG" >> $GITHUB_ENV
@@ -26,7 +24,14 @@ jobs:
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           echo "PREFIX=$PREFIX" >> $GITHUB_ENV
 
-          PREV_TAG=$(git tag --list "${PREFIX}-*" | sort | grep -v "$CUR_TAG" | tail -1)
+          if [ "$PREFIX" = "qa" ]; then
+            PREV_TAG=$(git tag --list 'qa-*' --sort=-creatordate | grep -v "$CUR_TAG" | head -1)
+          elif [ "$PREFIX" = "prod" ]; then
+            PREV_TAG=$(git tag --list 'prod-*' --sort=-creatordate | grep -v "$CUR_TAG" | head -1)
+            QA_BASE=$(git tag --list 'qa-*' --sort=-creatordate | head -1)
+            echo "QA_BASE=$QA_BASE" >> $GITHUB_ENV
+          fi
+
           echo "PREVIOUS_TAG=$PREV_TAG" >> $GITHUB_ENV
 
           if [ -z "$PREV_TAG" ]; then
@@ -40,35 +45,32 @@ jobs:
           OUTFILE="releases/${CURRENT_TAG}.sql"
           echo "/********************************************/" > "$OUTFILE"
           echo "-- AUTO RELEASE: ${CURRENT_TAG}" >> "$OUTFILE"
-          if [ "$FIRST_RELEASE" = "false" ]; then
-            echo "-- DIFF: ${PREVIOUS_TAG} -> ${CURRENT_TAG}" >> "$OUTFILE"
-          else
-            echo "-- FIRST RELEASE for environment: ${PREFIX}" >> "$OUTFILE"
-          fi
+          echo "-- PREFIX: ${PREFIX}" >> "$OUTFILE"
+          echo "-- BASE: ${PREVIOUS_TAG}" >> "$OUTFILE"
           echo "/********************************************/" >> "$OUTFILE"
-          echo "" >> "$OUTFILE"
 
           echo "----------------------------------------------" >> "$OUTFILE"
           echo "-- SECTION: MIGRATIONS (changes/)" >> "$OUTFILE"
           echo "----------------------------------------------" >> "$OUTFILE"
 
-          if [ "$FIRST_RELEASE" = "false" ]; then
-            CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes -type f -name "*.sql") || true)
-          else
-            CHANGED_FILES=$(find changes -type f -name "*.sql" || true)
+          if [ "$PREFIX" = "qa" ]; then
+            RANGE="$PREVIOUS_TAG...HEAD"
+          elif [ "$PREFIX" = "prod" ]; then
+            RANGE="$PREVIOUS_TAG...$QA_BASE"
           fi
+
+          CHANGED_FILES=$(git diff --name-only --diff-filter=AM $RANGE -- changes/**/*.sql || true)
 
           for f in $CHANGED_FILES; do
             if [ -f "$f" ]; then
               echo "-- FILE: $f" >> "$OUTFILE"
-              echo "" >> "$OUTFILE"
               cat "$f" >> "$OUTFILE"
               echo -e "\n\n" >> "$OUTFILE"
             fi
           done
 
           echo "----------------------------------------------" >> "$OUTFILE"
-          echo "-- SECTION: SCHEMA (FULL if first release)" >> "$OUTFILE"
+          echo "-- SECTION: SCHEMA CHANGES" >> "$OUTFILE"
           echo "----------------------------------------------" >> "$OUTFILE"
 
           if [ "$FIRST_RELEASE" = "true" ]; then
@@ -78,30 +80,27 @@ jobs:
               echo -e "\n\n" >> "$OUTFILE"
             done
           else
-            FILES_IN_SCHEMA=$(find schema -type f -name "*.sql" || true)
-            NEW_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- $FILES_IN_SCHEMA | grep '^A' | cut -f2 || true)
-            MOD_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- $FILES_IN_SCHEMA | grep '^M' | cut -f2 || true)
-
+            NEW_SCHEMA=$(git diff --name-status $RANGE -- schema/**/*.sql | grep '^A' | cut -f2 || true)
             for f in $NEW_SCHEMA; do
               if [ -f "$f" ]; then
                 echo "-- NEW OBJECT: $f" >> "$OUTFILE"
-                echo "" >> "$OUTFILE"
                 cat "$f" >> "$OUTFILE"
                 echo -e "\n\n" >> "$OUTFILE"
               fi
             done
 
-            echo "-- MODIFIED OBJECTS (schema/) AS COMMENTS" >> "$OUTFILE"
+            echo "-- MODIFIED OBJECTS (AS COMMENTS)" >> "$OUTFILE"
+            MOD_SCHEMA=$(git diff --name-status $RANGE -- schema/**/*.sql | grep '^M' | cut -f2 || true)
             for f in $MOD_SCHEMA; do
-              echo "-- MODIFIED OBJECT: $f" >> "$OUTFILE"
-              echo "-- BEGIN DIFF --------------------------------" >> "$OUTFILE"
-              git diff "$PREVIOUS_TAG"...HEAD -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
-              echo "-- END DIFF ----------------------------------" >> "$OUTFILE"
+              echo "-- MODIFIED: $f" >> "$OUTFILE"
+              echo "-- BEGIN DIFF" >> "$OUTFILE"
+              git diff $RANGE -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
+              echo "-- END DIFF" >> "$OUTFILE"
               echo -e "\n\n" >> "$OUTFILE"
             done
           fi
 
-      - name: Commit release file to main
+      - name: Commit release file
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "auto release ${{ env.CURRENT_TAG }}"
