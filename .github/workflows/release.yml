@@ -10,6 +10,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -38,15 +41,15 @@ jobs:
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           OUTFILE="releases/${CUR_TAG}.sql"
-          mkdir -p releases .releases/qa
+          mkdir -p releases .releases/qa release-map
 
           echo "/********************************************/" > "$OUTFILE"
           echo "-- AUTO RELEASE: ${CUR_TAG}" >> "$OUTFILE"
           echo "/********************************************/" >> "$OUTFILE"
           echo "" >> "$OUTFILE"
 
-          MAP_FILE=".releases/map.json"
-          TMP_MAP=".releases/map.tmp.json"
+          MAP_FILE="release-map/map.json"
+          TMP_MAP="release-map/map.tmp.json"
           NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           if [ ! -f "$MAP_FILE" ]; then echo "[]" > "$MAP_FILE"; fi
@@ -134,5 +137,5 @@ jobs:
           commit_message: "auto release ${{ env.CURRENT_TAG }}"
           file_pattern: |
             releases/*.sql
-            .releases/map.json
+            release-map/map.json
           branch: main
