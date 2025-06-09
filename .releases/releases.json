@@ -64,5 +64,11 @@
     "type": "prod",
     "timestamp": 20250621,
     "content": "changes/asdsadas.sql\nchanges/teeeeest.sql\nchanges/testtest1.sql"
+  },
+  {
+    "tag": "prod-20250644",
+    "type": "prod",
+    "timestamp": 20250644,
+    "content": "\nchanges/asdfsadfas.sql"
   }
 ]
