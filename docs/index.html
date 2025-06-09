@@ -1,50 +1,102 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Release Map</title>
+  <title>Release Timeline Map</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    canvas { max-width: 100%; }
+  </style>
 </head>
 <body>
-  <h1>Release Map: QA → PROD</h1>
-  <ul id="map"></ul>
+  <h1>QA and PROD Release Timeline</h1>
+  <canvas id="timelineChart" height="600"></canvas>
 
   <script>
-    // change creds
     const owner = "karolkwasnikggs";
     const repo = "RepoAutomationTest";
     const branch = "main";
 
-    async function getTxtFiles(folder) {
+    async function getFiles(folder) {
       const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.releases/${folder}?ref=${branch}`);
       const data = await res.json();
-      return data.filter(f => f.name.endsWith(".txt"));
+      return data.filter(f => f.name.endsWith(".txt"))
+                 .map(f => ({
+                   tag: f.name.replace(".txt", ""),
+                   timestamp: parseInt(f.name.match(/\\d+/)[0], 10),
+                   folder
+                 }));
     }
 
-    async function generateMap() {
-      const qaFiles = await getTxtFiles("qa");
-      const prodFiles = await getTxtFiles("prod");
+    async function drawTimeline() {
+      const qa = await getFiles("qa");
+      const prod = await getFiles("prod");
 
-      const ul = document.getElementById("map");
+      const all = [...qa, ...prod].sort((a, b) => a.timestamp - b.timestamp);
 
-      for (const prod of prodFiles) {
-        const li = document.createElement("li");
-        li.innerHTML = `<strong>${prod.name.replace('.txt', '')}</strong><ul></ul>`;
-        const inner = li.querySelector("ul");
-
-        const prodDate = prod.name.match(/\d+/)[0]; // np. 20250620
-
-        const matchedQAs = qaFiles.filter(q => q.name.match(/\d+/)[0] <= prodDate);
-        for (const qa of matchedQAs) {
-          const qaLi = document.createElement("li");
-          qaLi.textContent = qa.name.replace('.txt', '');
-          inner.appendChild(qaLi);
+      const labels = all.map(f => f.tag);
+      const datasets = [
+        {
+          label: "QA",
+          data: all.map(f => f.folder === "qa" ? f.timestamp : null),
+          backgroundColor: "#4e79a7",
+          datalabels: {
+            anchor: 'end',
+            align: 'top',
+            color: '#4e79a7',
+            formatter: (_, ctx) => all[ctx.dataIndex].folder === "qa" ? all[ctx.dataIndex].tag : ''
+          }
+        },
+        {
+          label: "PROD",
+          data: all.map(f => f.folder === "prod" ? f.timestamp : null),
+          backgroundColor: "#f28e2c",
+          datalabels: {
+            anchor: 'start',
+            align: 'bottom',
+            color: '#f28e2c',
+            formatter: (_, ctx) => all[ctx.dataIndex].folder === "prod" ? all[ctx.dataIndex].tag : ''
+          }
         }
+      ];
 
-        ul.appendChild(li);
-      }
+      new Chart(document.getElementById('timelineChart'), {
+        type: 'bar',
+        data: {
+          labels,
+          datasets
+        },
+        options: {
+          indexAxis: 'y',
+          plugins: {
+            legend: { display: false },
+            datalabels: {
+              display: true
+            },
+            tooltip: {
+              callbacks: {
+                label: ctx => ctx.raw ? `${ctx.dataset.label}: ${ctx.label}` : ''
+              }
+            }
+          },
+          scales: {
+            x: {
+              display: false
+            },
+            y: {
+              ticks: {
+                callback: (val, idx) => all[idx].tag
+              }
+            }
+          }
+        },
+        plugins: [ChartDataLabels]
+      });
     }
 
-    generateMap();
+    drawTimeline();
   </script>
 </body>
 </html>
