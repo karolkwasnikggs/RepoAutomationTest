@@ -84,49 +84,14 @@
   </div>
 
   <script>
-    const owner = "karolkwasnikggs"; // <- ZMIEŃ NA SWOJE
-    const repo = "RepoAutomationTest";
-    const branch = "main";
-// ustawione na RepoAutomationTest
-    async function getTags(folder) {
-      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.releases/${folder}?ref=${branch}`, {
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'Authorization': 'token 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'
-        }
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      if (!Array.isArray(data)) return [];
-
-      const result = [];
-      for (const f of data.filter(f => f.name.endsWith('.txt'))) {
-        const tag = f.name.replace('.txt', '');
-        const timestamp = parseInt(f.name.match(/\d+/)?.[0] || '0', 10);
-        let content = "";
-        try {
-          const contentRes = await fetch(f.download_url, {
-            headers: {
-              'Authorization': 'token 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'
-            }
-          });
-          content = await contentRes.text();
-        } catch (e) {
-          content = "(unable to fetch content)";
-        }
-        result.push({ tag, timestamp, type: folder, content });
-      }
-      return result;
-    }
-
     async function renderTimeline() {
-      const qa = await getTags("qa");
-      const prod = await getTags("prod");
-      const all = [...qa, ...prod].sort((a, b) => a.timestamp - b.timestamp);
+      const res = await fetch('https://raw.githubusercontent.com/karolkwasnikggs/RepoAutomationTest/main/.releases/releases.json');
+      const data = await res.json();
+      const sorted = data.sort((a, b) => a.timestamp - b.timestamp);
 
       const timeline = document.getElementById("timeline");
 
-      all.forEach(entry => {
+      sorted.forEach(entry => {
         const li = document.createElement("li");
         li.className = "event";
         li.setAttribute("data-date", entry.tag);
