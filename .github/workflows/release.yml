@@ -30,91 +30,75 @@ jobs:
             LAST_PROD=$(git tag --list 'prod-*' --sort=creatordate | grep -v "$CUR_TAG" | tail -1)
             echo "LAST_PROD=$LAST_PROD" >> $GITHUB_ENV
 
-            # get QA tags after last prod
-            if [ -z "$LAST_PROD" ]; then
-              QA_TAGS=$(git tag --list 'qa-*' --sort=creatordate)
-            else
-              QA_TAGS=$(git tag --list 'qa-*' --sort=creatordate | awk -v last="$LAST_PROD" 'found&&/^qa-/{print} $0==last{found=1}')
+            QA_TAGS=$(git tag --list 'qa-*' --sort=creatordate)
+            if [ -n "$LAST_PROD" ]; then
+              QA_TAGS=$(git tag --sort=creatordate --merged | grep '^qa-' | awk -v last="$LAST_PROD" 'found { print } $0 == last { found=1 }')
             fi
             echo "QA_TAGS=$QA_TAGS" >> $GITHUB_ENV
 
-            # prod range uses LAST_PROD and QA_TAGS
-            echo "FIRST_RELEASE_PROD=$( [ -z "$QA_TAGS" ] && echo true || echo false )" >> $GITHUB_ENV
+            echo "FIRST_RELEASE=false" >> $GITHUB_ENV
           else
             PREV_TAG=$(git tag --list "${PREFIX}-*" --sort=creatordate | grep -v "$CUR_TAG" | tail -1)
             echo "PREV_TAG=$PREV_TAG" >> $GITHUB_ENV
-            echo "FIRST_RELEASE_QA=$( [ -z "$PREV_TAG" ] && echo true || echo false )" >> $GITHUB_ENV
+            echo "FIRST_RELEASE=$( [ -z "$PREV_TAG" ] && echo true || echo false )" >> $GITHUB_ENV
           fi
 
       - name: Build release SQL file
         run: |
           OUTFILE="releases/${CURRENT_TAG}.sql"
+          mkdir -p releases
           echo "/********************************************/" > "$OUTFILE"
           echo "-- AUTO RELEASE: ${CURRENT_TAG}" >> "$OUTFILE"
           if [[ "$PREFIX" == "prod" ]]; then
-            if [[ "$FIRST_RELEASE_PROD" == "true" ]]; then
-              echo "-- FIRST PROD RELEASE" >> "$OUTFILE"
-            else
-              echo "-- Include QA tags: ${QA_TAGS}" >> "$OUTFILE"
-            fi
+            echo "-- Includes changes from QA tags after: ${LAST_PROD}" >> "$OUTFILE"
+          elif [[ "$FIRST_RELEASE" == "true" ]]; then
+            echo "-- FIRST RELEASE for environment: ${PREFIX}" >> "$OUTFILE"
           else
-            if [[ "$FIRST_RELEASE_QA" == "true" ]]; then
-              echo "-- FIRST QA RELEASE" >> "$OUTFILE"
-            else
-              echo "-- DIFF: ${PREV_TAG} -> HEAD" >> "$OUTFILE"
-            fi
+            echo "-- DIFF: ${PREV_TAG} -> HEAD" >> "$OUTFILE"
           fi
           echo "/********************************************/" >> "$OUTFILE"
           echo >> "$OUTFILE"
 
           echo "-- SECTION: MIGRATIONS (changes/)" >> "$OUTFILE"
-          if [[ "$PREFIX" == "prod" && "$FIRST_RELEASE_PROD" == "false" ]]; then
+          if [[ "$PREFIX" == "prod" ]]; then
             FILES=""
             for tag in $QA_TAGS; do
-              files=$(git diff --name-only --diff-filter=ACM "${LAST_PROD}" "$tag" -- $(find changes -type f -name "*.sql") || true)
+              files=$(git diff --name-only --diff-filter=ACM "$LAST_PROD" "$tag" -- $(find changes -type f -name "*.sql") || true)
               FILES="$FILES $files"
             done
             CHANGED=$(echo "$FILES" | tr ' ' '\n' | sort -u)
-          elif [[ "$PREFIX" == "prod" ]]; then
+          elif [[ "$FIRST_RELEASE" == "true" ]]; then
             CHANGED=$(find changes -type f -name "*.sql" || true)
           else
-            if [[ "$FIRST_RELEASE_QA" == "true" ]]; then
-              CHANGED=$(find changes -type f -name "*.sql" || true)
-            else
-              CHANGED=$(git diff --name-only --diff-filter=ACM "${PREV_TAG}"..HEAD -- $(find changes -type f -name "*.sql") || true)
-            fi
+            CHANGED=$(git diff --name-only --diff-filter=ACM "$PREV_TAG"..HEAD -- $(find changes -type f -name "*.sql") || true)
           fi
           for f in $CHANGED; do
-            [ -f "$f" ] && printf "-- FILE: %s\n" "$f" >> "$OUTFILE" && cat "$f" >> "$OUTFILE" && printf "\n" >> "$OUTFILE"
+            [ -f "$f" ] && echo "-- FILE: $f" >> "$OUTFILE" && cat "$f" >> "$OUTFILE" && echo >> "$OUTFILE"
           done
 
           echo "-- SECTION: SCHEMA" >> "$OUTFILE"
-          if [[ "$PREFIX" == "qa" && "$FIRST_RELEASE_QA" == "true" ]] || [[ "$PREFIX" == "prod" && "$FIRST_RELEASE_PROD" == "true" ]]; then
+          if [[ "$FIRST_RELEASE" == "true" ]]; then
             for f in $(find schema -type f -name "*.sql" || true); do
-              printf "-- SCHEMA OBJECT: %s\n" "$f" >> "$OUTFILE"
+              echo "-- SCHEMA OBJECT: $f" >> "$OUTFILE"
               cat "$f" >> "$OUTFILE"
-              printf "\n" >> "$OUTFILE"
+              echo >> "$OUTFILE"
             done
           else
-            BASE=${PREFIX}
+            BASE=$PREV_TAG
             if [[ "$PREFIX" == "prod" ]]; then
-              BASE=${LAST_PROD}
-              END_TAG=${LATEST_QA}
-            else
-              BASE=${PREV_TAG}
-              END_TAG=HEAD
+              BASE=$LAST_PROD
             fi
-            NEW=$(git diff --name-status "$BASE".."$END_TAG" -- $(find schema -type f -name "*.sql") | grep '^A' | cut -f2)
-            MOD=$(git diff --name-status "$BASE".."$END_TAG" -- $(find schema -type f -name "*.sql") | grep '^M' | cut -f2)
+            NEW=$(git diff --name-status "$BASE"..HEAD -- $(find schema -type f -name "*.sql") | grep '^A' | cut -f2)
+            MOD=$(git diff --name-status "$BASE"..HEAD -- $(find schema -type f -name "*.sql") | grep '^M' | cut -f2)
             for f in $NEW; do
-              [ -f "$f" ] && printf "-- NEW OBJECT: %s\n" "$f" >> "$OUTFILE" && cat "$f" >> "$OUTFILE" && printf "\n" >> "$OUTFILE"
+              [ -f "$f" ] && echo "-- NEW OBJECT: $f" >> "$OUTFILE" && cat "$f" >> "$OUTFILE" && echo >> "$OUTFILE"
             done
             if [ -n "$MOD" ]; then
-              printf "-- MODIFIED OBJECTS (comments)\n" >> "$OUTFILE"
+              echo "-- MODIFIED OBJECTS (comments)" >> "$OUTFILE"
               for f in $MOD; do
-                printf "-- OBJECT: %s\n" "$f" >> "$OUTFILE"
-                git diff "$BASE".."$END_TAG" -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
-                printf "\n" >> "$OUTFILE"
+                echo "-- OBJECT: $f" >> "$OUTFILE"
+                git diff "$BASE"..HEAD -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
+                echo >> "$OUTFILE"
               done
             fi
           fi
