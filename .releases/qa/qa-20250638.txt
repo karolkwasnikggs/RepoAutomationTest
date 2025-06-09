@@ -1,0 +1,3 @@
+changes/test123.sql
+schema/functions/func.sql
+schema/functions/new_file.sql
