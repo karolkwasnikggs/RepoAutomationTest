@@ -1,4 +1,0 @@
-changes/test123.sql
-changes/test91.sql
-schema/functions/func.sql
-schema/functions/new_file.sql
