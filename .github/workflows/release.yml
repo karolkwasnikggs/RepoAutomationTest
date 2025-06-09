@@ -5,8 +5,6 @@ on:
     tags:
       - 'qa-*'
       - 'prod-*'
-      - 'preprod-*'
-      - 'prepreprod-*'
 
 jobs:
   build:
@@ -37,10 +35,10 @@ jobs:
 
       - name: Build release SQL file
         run: |
-          mkdir -p releases
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           OUTFILE="releases/${CUR_TAG}.sql"
+          mkdir -p releases
 
           echo "/********************************************/" > "$OUTFILE"
           echo "-- AUTO RELEASE: ${CUR_TAG}" >> "$OUTFILE"
@@ -67,8 +65,10 @@ jobs:
 
           elif [[ "$PREFIX" == "prod" ]]; then
             echo "-- PROD RELEASE" >> "$OUTFILE"
+
             PREV_PROD=$(git tag --list 'prod-*' | sort | grep -v "$CUR_TAG" | tail -1)
-            FILES_TO_INCLUDE=""
+            TEMP_LIST=".temp_file_list.txt"
+            > "$TEMP_LIST"
 
             for qa_file in $(ls .releases/qa/*.txt 2>/dev/null | sort); do
               QA_TAG=$(basename "$qa_file" .txt)
@@ -79,26 +79,28 @@ jobs:
                   continue
                 fi
               fi
-              FILES_TO_INCLUDE="$FILES_TO_INCLUDE $(cat "$qa_file")"
+              cat "$qa_file" >> "$TEMP_LIST"
             done
 
-            for f in $FILES_TO_INCLUDE; do
+            sort -u "$TEMP_LIST" > "$TEMP_LIST.uniq"
+
+            while read -r f; do
               if [[ "$f" == changes/* && -f "$f" ]]; then
                 echo "-- FILE: $f" >> "$OUTFILE"
                 echo "" >> "$OUTFILE"
                 cat "$f" >> "$OUTFILE"
                 echo -e "\n\n" >> "$OUTFILE"
               fi
-            done
+            done < "$TEMP_LIST.uniq"
 
             echo "-- SCHEMA CHANGES" >> "$OUTFILE"
-            for f in $FILES_TO_INCLUDE; do
+            while read -r f; do
               if [[ "$f" == schema/* && -f "$f" ]]; then
                 echo "-- OBJECT: $f" >> "$OUTFILE"
                 cat "$f" >> "$OUTFILE"
                 echo -e "\n\n" >> "$OUTFILE"
               fi
-            done
+            done < "$TEMP_LIST.uniq"
           fi
 
       - name: Commit QA file list if needed
