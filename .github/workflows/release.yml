@@ -41,6 +41,7 @@ jobs:
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           OUTFILE="releases/${CUR_TAG}.sql"
+          QA_FILE=".releases/qa/${CUR_TAG}.txt"
           MAP_HTML="docs/index.html"
           NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -48,6 +49,8 @@ jobs:
           echo "-- AUTO RELEASE: ${CUR_TAG}" >> "$OUTFILE"
           echo "/********************************************/" >> "$OUTFILE"
           echo "" >> "$OUTFILE"
+
+          : > "$QA_FILE"
 
           if [[ "$PREFIX" == "qa" ]]; then
             echo "-- QA RELEASE" >> "$OUTFILE"
@@ -58,8 +61,7 @@ jobs:
               CHANGED_FILES=$(find changes schema -type f -name "*.sql" || true)
             fi
 
-            echo "$CHANGED_FILES" > ".releases/qa/${CUR_TAG}.txt"
-            touch ".releases/qa/${CUR_TAG}.txt"
+            echo "$CHANGED_FILES" >> "$QA_FILE"
 
             for f in $CHANGED_FILES; do
               if [[ "$f" == changes/* && -f "$f" ]]; then
@@ -74,7 +76,7 @@ jobs:
 
             PREV_PROD=$(git tag --list 'prod-*' | sort | grep -v "$CUR_TAG" | tail -1)
             TEMP_LIST=".temp_files.txt"
-            > "$TEMP_LIST"
+            : > "$TEMP_LIST"
             INCLUDED_QA=()
 
             for qa_file in $(ls .releases/qa/*.txt 2>/dev/null | sort); do
@@ -91,6 +93,7 @@ jobs:
             done
 
             sort -u "$TEMP_LIST" > "$TEMP_LIST.uniq"
+            cat "$TEMP_LIST.uniq" >> "$QA_FILE"
 
             while read -r f; do
               if [[ "$f" == changes/* && -f "$f" ]]; then
@@ -108,12 +111,9 @@ jobs:
                 echo -e "\n\n" >> "$OUTFILE"
               fi
             done < "$TEMP_LIST.uniq"
-
-            touch ".releases/qa/${CUR_TAG}.txt"
-
           fi
 
-          # generate docs/index.html
+          # Always regenerate HTML map
           echo "<html><head><title>Release Map</title></head><body><h1>Release Map</h1><ul>" > "$MAP_HTML"
           for tagfile in $(ls .releases/qa/*.txt 2>/dev/null | sort); do
             tag=$(basename "$tagfile" .txt)
