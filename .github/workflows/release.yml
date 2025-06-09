@@ -109,6 +109,7 @@ jobs:
             echo "-- SECTION: MIGRATIONS (from QA releases)" >> "$OUTFILE"
             echo "----------------------------------------------" >> "$OUTFILE"
 
+            mkdir -p .releases/prod
             PREV_PROD=$(git tag --list 'prod-*' | sort | grep -v "$CUR_TAG" | tail -1)
             TEMP_LIST=".temp_qa_files.txt"
             > "$TEMP_LIST"
@@ -126,6 +127,7 @@ jobs:
             done
 
             sort -u "$TEMP_LIST" > "$TEMP_LIST.uniq"
+            cp "$TEMP_LIST.uniq" ".releases/prod/${CUR_TAG}.txt"
 
             while read -r f; do
               if [[ "$f" == changes/* && -f "$f" ]]; then
@@ -154,6 +156,14 @@ jobs:
         with:
           commit_message: "save QA release file list: ${{ env.CURRENT_TAG }}"
           file_pattern: ".releases/qa/*.txt"
+          branch: main
+
+      - name: Commit PROD file list if needed
+        if: env.PREFIX == 'prod'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "save PROD release file list: ${{ env.CURRENT_TAG }}"
+          file_pattern: ".releases/prod/*.txt"
           branch: main
 
       - name: Commit release file to main
