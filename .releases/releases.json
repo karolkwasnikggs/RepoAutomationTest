@@ -36,6 +36,12 @@
     "content": "changes/aaaaaaaa.sql\nchanges/abcd.sql"
   },
   {
+    "tag": "qa-20250645",
+    "type": "qa",
+    "timestamp": 20250645,
+    "content": ""
+  },
+  {
     "tag": "prod-20250620",
     "type": "prod",
     "timestamp": 20250620,
