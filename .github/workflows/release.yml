@@ -15,101 +15,77 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Identify current, previous tag and target range
+      - name: Determine release range
         id: taginfo
         run: |
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           echo "CURRENT_TAG=$CUR_TAG" >> $GITHUB_ENV
 
-          PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
+          PREFIX=${CUR_TAG%%-*}
           echo "PREFIX=$PREFIX" >> $GITHUB_ENV
 
           if [[ "$PREFIX" == "prod" ]]; then
-            QA_TAGS=$(git tag --list 'qa-*' | sort)
-            LAST_PROD=$(git tag --list 'prod-*' | sort | grep -v "$CUR_TAG" | tail -1)
-            RANGE_START=$LAST_PROD
-            RANGE_END=$(echo "$QA_TAGS" | tail -1)
+            LAST_PROD=$(git tag --list 'prod-*' --sort=creatordate | grep -v "$CUR_TAG" | tail -1)
+            LATEST_QA=$(git tag --list 'qa-*' --sort=creatordate | tail -1)
+            RANGE_START=${LAST_PROD:-}
+            RANGE_END=$LATEST_QA
+            echo "RANGE_START=$RANGE_START" >> $GITHUB_ENV
+            echo "RANGE_END=$RANGE_END" >> $GITHUB_ENV
           else
-            RANGE_START=$(git tag --list "${PREFIX}-*" | sort | grep -v "$CUR_TAG" | tail -1)
-            RANGE_END="HEAD"
-          fi
-
-          echo "RANGE_START=$RANGE_START" >> $GITHUB_ENV
-          echo "RANGE_END=$RANGE_END" >> $GITHUB_ENV
-
-          if [ -z "$RANGE_START" ]; then
-            echo "FIRST_RELEASE=true" >> $GITHUB_ENV
-          else
-            echo "FIRST_RELEASE=false" >> $GITHUB_ENV
+            PREV_TAG=$(git tag --list "${PREFIX}-*" --sort=creatordate | grep -v "$CUR_TAG" | tail -1)
+            echo "RANGE_START=$PREV_TAG" >> $GITHUB_ENV
+            echo "RANGE_END=HEAD" >> $GITHUB_ENV
           fi
 
       - name: Build release SQL file
         run: |
-          OUTFILE="releases/${CURRENT_TAG}.sql"
-          echo "/********************************************/" > "$OUTFILE"
-          echo "-- AUTO RELEASE: ${CURRENT_TAG}" >> "$OUTFILE"
-          if [ "$FIRST_RELEASE" = "false" ]; then
-            echo "-- DIFF: ${RANGE_START} -> ${RANGE_END}" >> "$OUTFILE"
+          OUT=\"releases/${CURRENT_TAG}.sql\"
+          echo "/********************************************/" > $OUT
+          echo "-- AUTO RELEASE: ${CURRENT_TAG}" >> $OUT
+          if [ -n "$RANGE_START" ]; then
+            echo "-- RANGE: ${RANGE_START} -> ${RANGE_END}" >> $OUT
           else
-            echo "-- FIRST RELEASE for environment: ${PREFIX}" >> "$OUTFILE"
+            echo "-- FIRST RELEASE for env: ${PREFIX}" >> $OUT
           fi
-          echo "/********************************************/" >> "$OUTFILE"
-          echo "" >> "$OUTFILE"
+          echo "/********************************************/" >> $OUT
+          echo >> $OUT
 
-          echo "----------------------------------------------" >> "$OUTFILE"
-          echo "-- SECTION: MIGRATIONS (changes/)" >> "$OUTFILE"
-          echo "----------------------------------------------" >> "$OUTFILE"
-
-          if [ "$FIRST_RELEASE" = "false" ]; then
-            CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$RANGE_START"..."$RANGE_END" -- changes/**/*.sql || true)
+          echo "-- SECTION: MIGRATIONS (changes/)" >> $OUT
+          if [ -z "$RANGE_START" ]; then
+            MIG=$(find changes -type f -name "*.sql" || true)
+          elif [[ "$PREFIX" == "prod" ]]; then
+            MIG=$(git diff --name-only --diff-filter=ACM "$RANGE_START" "$RANGE_END" -- $(find changes -type f -name "*.sql") || true)
           else
-            CHANGED_FILES=$(find changes -type f -name "*.sql" || true)
+            MIG=$(git diff --name-only --diff-filter=ACM "$RANGE_START"..HEAD -- $(find changes -type f -name "*.sql") || true)
           fi
-
-          for f in $CHANGED_FILES; do
-            if [ -f "$f" ]; then
-              echo "-- FILE: $f" >> "$OUTFILE"
-              echo "" >> "$OUTFILE"
-              cat "$f" >> "$OUTFILE"
-              echo -e "\n\n" >> "$OUTFILE"
-            fi
+          for f in $MIG; do
+            [ -f "$f" ] && printf "-- FILE: %s\n" "$f" >> $OUT && cat "$f" >> $OUT && echo >> $OUT
           done
 
-          echo "----------------------------------------------" >> "$OUTFILE"
-          echo "-- SECTION: SCHEMA (FULL if first release)" >> "$OUTFILE"
-          echo "----------------------------------------------" >> "$OUTFILE"
-
-          if [ "$FIRST_RELEASE" = "true" ]; then
-            for f in $(find schema -type f -name "*.sql" || true); do
-              echo "-- SCHEMA OBJECT: $f" >> "$OUTFILE"
-              cat "$f" >> "$OUTFILE"
-              echo -e "\n\n" >> "$OUTFILE"
+          echo "-- SECTION: SCHEMA" >> $OUT
+          if [ -z "$RANGE_START" ]; then
+            SCH=$(find schema -type f -name "*.sql" || true)
+            for f in $SCH; do
+              printf "-- SCHEMA OBJECT: %s\n" "$f" >> $OUT
+              cat "$f" >> $OUT && echo >> $OUT
             done
           else
-            NEW_SCHEMA=$(git diff --name-status "$RANGE_START"..."$RANGE_END" -- schema/**/*.sql | grep '^A' | cut -f2 || true)
-            for f in $NEW_SCHEMA; do
-              if [ -f "$f" ]; then
-                echo "-- NEW OBJECT: $f" >> "$OUTFILE"
-                echo "" >> "$OUTFILE"
-                cat "$f" >> "$OUTFILE"
-                echo -e "\n\n" >> "$OUTFILE"
-              fi
+            NEW=$(git diff --name-status "$RANGE_START".."$RANGE_END" -- $(find schema -type f -name "*.sql") | grep '^A' | cut -f2 || true)
+            MOD=$(git diff --name-status "$RANGE_START".."$RANGE_END" -- $(find schema -type f -name "*.sql") | grep '^M' | cut -f2 || true)
+            for f in $NEW; do
+              [ -f "$f" ] && printf "-- NEW OBJECT: %s\n" "$f" >> $OUT && cat "$f" >> $OUT && echo >> $OUT
             done
-
-            echo "-- MODIFIED OBJECTS (schema/) AS COMMENTS" >> "$OUTFILE"
-            MOD_SCHEMA=$(git diff --name-status "$RANGE_START"..."$RANGE_END" -- schema/**/*.sql | grep '^M' | cut -f2 || true)
-            for f in $MOD_SCHEMA; do
-              echo "-- MODIFIED OBJECT: $f" >> "$OUTFILE"
-              echo "-- BEGIN DIFF --------------------------------" >> "$OUTFILE"
-              git diff "$RANGE_START"..."$RANGE_END" -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
-              echo "-- END DIFF ----------------------------------" >> "$OUTFILE"
-              echo -e "\n\n" >> "$OUTFILE"
+            printf "-- MODIFIED OBJECTS (comments)\n" >> $OUT
+            for f in $MOD; do
+              printf "-- OBJECT: %s\n" "$f" >> $OUT
+              git diff "$RANGE_START".."$RANGE_END" -- "$f" | sed 's/^/-- /' >> $OUT
+              echo >> $OUT
             done
           fi
 
-      - name: Commit release file to main
+      - name: Commit release file
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "auto release ${{ env.CURRENT_TAG }}"
+          commit_message: "auto release ${CURRENT_TAG}"
           file_pattern: "releases/*.sql"
           branch: main
