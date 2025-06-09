@@ -14,6 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Identify current and previous tag
         id: taginfo
@@ -49,15 +50,13 @@ jobs:
             echo "-- QA RELEASE" >> "$OUTFILE"
             echo "-- MIGRATIONS (changes/)" >> "$OUTFILE"
 
-            CHANGED_FILES=$(git diff --name-only "$PREVIOUS_TAG"...HEAD -- 'changes/**/*.sql' 'schema/**/*.sql' || true)
-
             mkdir -p .releases/qa
+            CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r "$CUR_TAG" -- 'changes/**/*.sql' 'schema/**/*.sql' || true)
             echo "$CHANGED_FILES" > ".releases/qa/${CUR_TAG}.txt"
 
             for f in $CHANGED_FILES; do
               if [[ "$f" == changes/* && -f "$f" ]]; then
                 echo "-- FILE: $f" >> "$OUTFILE"
-                echo "" >> "$OUTFILE"
                 cat "$f" >> "$OUTFILE"
                 echo -e "\n\n" >> "$OUTFILE"
               fi
@@ -73,12 +72,14 @@ jobs:
             for qa_file in $(ls .releases/qa/*.txt 2>/dev/null | sort); do
               QA_TAG=$(basename "$qa_file" .txt)
               QA_COMMIT=$(git rev-list -n 1 "$QA_TAG")
+
               if [ -n "$PREV_PROD" ]; then
                 PROD_COMMIT=$(git rev-list -n 1 "$PREV_PROD")
                 if git merge-base --is-ancestor "$QA_COMMIT" "$PROD_COMMIT"; then
                   continue
                 fi
               fi
+
               cat "$qa_file" >> "$TEMP_LIST"
             done
 
@@ -87,7 +88,6 @@ jobs:
             while read -r f; do
               if [[ "$f" == changes/* && -f "$f" ]]; then
                 echo "-- FILE: $f" >> "$OUTFILE"
-                echo "" >> "$OUTFILE"
                 cat "$f" >> "$OUTFILE"
                 echo -e "\n\n" >> "$OUTFILE"
               fi
