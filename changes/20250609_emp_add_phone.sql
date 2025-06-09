@@ -1,0 +1,1 @@
+ALTER TABLE emp ADD COLUMN phone NUMBER;
