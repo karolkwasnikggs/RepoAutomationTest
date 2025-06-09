@@ -1,0 +1,2 @@
+changes/test.sql
+schema/functions/new_file.sql
