@@ -10,9 +10,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Delay job start by 30 seconds
-        run: sleep 30
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -26,6 +23,7 @@ jobs:
               [ -f "$f" ] || continue
               tag=$(basename "$f" .txt)
               timestamp=$(echo "$tag" | grep -o '[0-9]\+')
+              content=$(sed 's/"/\\"/g' "$f" | awk '{ print "    \"" $0 "\"," }')
               echo "  {" >> .releases/releases.json
               echo "    \"tag\": \"$tag\"," >> .releases/releases.json
               echo "    \"type\": \"$folder\"," >> .releases/releases.json
@@ -39,12 +37,9 @@ jobs:
           sed -i '$ s/},/}/' .releases/releases.json
           echo "]" >> .releases/releases.json
 
-      - name: Commit JSON release map
+      - name: Commit releases.json
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "update release map"
+          commit_message: "update releases.json"
           file_pattern: ".releases/releases.json"
           branch: main
-          skip_dirty_check: true
-          skip_fetch: true
-          push_options: '--force'
