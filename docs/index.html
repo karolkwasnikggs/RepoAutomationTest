@@ -2,72 +2,78 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Release Timeline Visual Map</title>
+  <title>Release Timeline</title>
+  <link href="https://fonts.googleapis.com/css2?family=Chivo:wght@300;400;700&family=Saira&display=swap" rel="stylesheet">
   <style>
     body {
-      font-family: sans-serif;
-      background: #f5f5f5;
+      background: #252827;
+      font-family: 'Chivo', sans-serif;
+      color: white;
       padding: 40px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
     }
     h1 {
-      margin-bottom: 30px;
-    }
-    .timeline {
-      display: flex;
-      flex-direction: row;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 10px;
-      background: white;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
-    .box {
-      padding: 10px 15px;
-      border-radius: 6px;
+      font-family: 'Saira', sans-serif;
+      letter-spacing: 1.5px;
+      text-align: center;
+      font-weight: 400;
+      font-size: 2.4em;
       color: white;
-      font-weight: bold;
+    }
+    ul.timeline {
+      border-left: 4px solid #004ffc;
+      margin: 50px auto;
+      padding: 50px;
+      list-style: none;
       position: relative;
-      cursor: pointer;
-    }
-    .box.qa { background-color: #4e79a7; }
-    .box.prod { background-color: #f28e2c; }
-    .arrow::after {
-      content: "\2192";
-      font-size: 24px;
-      color: #888;
-      margin: 0 10px;
-    }
-    .tooltip {
-      visibility: hidden;
-      background-color: #333;
-      color: #fff;
-      text-align: left;
+      max-width: 600px;
+      background: rgba(255,255,255,0.03);
       border-radius: 4px;
-      padding: 6px;
-      position: absolute;
-      z-index: 1;
-      bottom: 125%;
-      left: 50%;
-      transform: translateX(-50%);
-      opacity: 0;
-      transition: opacity 0.3s;
-      white-space: pre-wrap;
-      max-width: 300px;
     }
-    .box:hover .tooltip {
-      visibility: visible;
-      opacity: 1;
+    .timeline .event {
+      position: relative;
+      margin-bottom: 50px;
+      padding-left: 30px;
+      border-left: 1px dashed rgba(255,255,255,0.2);
+    }
+    .timeline .event::before {
+      content: attr(data-date);
+      position: absolute;
+      left: -140px;
+      top: 0;
+      width: 120px;
+      text-align: right;
+      font-size: 0.9em;
+      color: rgba(255,255,255,0.4);
+      font-family: 'Saira', sans-serif;
+    }
+    .timeline .event::after {
+      content: "";
+      position: absolute;
+      left: -8px;
+      top: 5px;
+      background: #004ffc;
+      border-radius: 50%;
+      width: 12px;
+      height: 12px;
+    }
+    .timeline .event h3 {
+      margin: 0;
+      font-size: 1.2em;
+      color: white;
+      font-weight: 400;
+      font-family: 'Saira', sans-serif;
+    }
+    .timeline .event p {
+      margin: 5px 0 0;
+      color: #ccc;
+      font-weight: 300;
+      white-space: pre-wrap;
     }
   </style>
 </head>
 <body>
-  <h1>Release Timeline</h1>
-  <div class="timeline" id="timeline"></div>
+  <h1>QA & PROD Timeline</h1>
+  <ul class="timeline" id="timeline"></ul>
 
   <script>
     const owner = "karolkwasnikggs";
@@ -102,21 +108,20 @@
 
       const timeline = document.getElementById("timeline");
 
-      all.forEach((entry, index) => {
-        const div = document.createElement("div");
-        div.className = `box ${entry.type}`;
-        const tooltip = document.createElement("div");
-        tooltip.className = "tooltip";
-        tooltip.textContent = entry.content || "(empty)";
-        div.textContent = entry.tag;
-        div.appendChild(tooltip);
-        timeline.appendChild(div);
+      all.forEach(entry => {
+        const li = document.createElement("li");
+        li.className = "event";
+        li.setAttribute("data-date", entry.tag);
 
-        if (index < all.length - 1) {
-          const arrow = document.createElement("div");
-          arrow.className = "arrow";
-          timeline.appendChild(arrow);
-        }
+        const h3 = document.createElement("h3");
+        h3.textContent = entry.type.toUpperCase() + " Release";
+
+        const p = document.createElement("p");
+        p.textContent = entry.content || "(empty)";
+
+        li.appendChild(h3);
+        li.appendChild(p);
+        timeline.appendChild(li);
       });
     }
 
