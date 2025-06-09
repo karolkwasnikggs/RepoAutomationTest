@@ -6,8 +6,6 @@ BEGIN
     -- Update the employee's rating
     UPDATE EMPLOYEES
     SET RATING = p_rating
-    WHERE EMPLOYEE_ID = p_employee_id;
-
     -- Check if the update was successful
     IF SQL%ROWCOUNT = 0 THEN
         RAISE_APPLICATION_ERROR(-20001, 'Employee ID not found.');
