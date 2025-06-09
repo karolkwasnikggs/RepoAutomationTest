@@ -34,12 +34,12 @@ jobs:
             echo "FIRST_RELEASE=false" >> $GITHUB_ENV
           fi
 
-      - name: Build release SQL file and index.html
+      - name: Build release SQL file
         run: |
-          mkdir -p releases .releases/qa .releases/prod docs
+          mkdir -p releases
           CUR_TAG="${GITHUB_REF#refs/tags/}"
-          PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           OUTFILE="releases/${CUR_TAG}.sql"
+          PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
 
           echo "/********************************************/" > "$OUTFILE"
           echo "-- AUTO RELEASE: ${CUR_TAG}" >> "$OUTFILE"
@@ -51,7 +51,8 @@ jobs:
             echo "-- SECTION: MIGRATIONS (changes/)" >> "$OUTFILE"
             echo "----------------------------------------------" >> "$OUTFILE"
 
-            CHANGED_FILES=""
+            mkdir -p .releases/qa
+
             if [ "$FIRST_RELEASE" = "false" ]; then
               CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes -type f -name "*.sql") $(find schema -type f -name "*.sql") || true)
             else
@@ -122,7 +123,6 @@ jobs:
                 fi
               fi
               cat "$qa_file" >> "$TEMP_LIST"
-              cp "$qa_file" ".releases/prod/${CUR_TAG}.txt"
             done
 
             sort -u "$TEMP_LIST" > "$TEMP_LIST.uniq"
@@ -148,24 +148,17 @@ jobs:
             done < "$TEMP_LIST.uniq"
           fi
 
-          echo "<html><head><title>Release Map</title></head><body><h1>Release Map</h1><ul>" > docs/index.html
-          for tagfile in $(ls .releases/qa/*.txt .releases/prod/*.txt 2>/dev/null | sort); do
-            tag=$(basename "$tagfile" .txt)
-            echo "<li><strong>$tag</strong><ul>" >> docs/index.html
-            while read -r f; do
-              echo "<li>$f</li>" >> docs/index.html
-            done < "$tagfile"
-            echo "</ul></li>" >> docs/index.html
-          done
-          echo "</ul></body></html>" >> docs/index.html
+      - name: Commit QA file list if needed
+        if: env.PREFIX == 'qa'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "save QA release file list: ${{ env.CURRENT_TAG }}"
+          file_pattern: ".releases/qa/*.txt"
+          branch: main
 
-      - name: Commit release, QA/PROD file list and index
+      - name: Commit release file to main
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "auto release ${{ env.CURRENT_TAG }}"
-          file_pattern: |
-            .releases/qa/*.txt
-            .releases/prod/*.txt
-            releases/*.sql
-            docs/index.html
+          file_pattern: "releases/*.sql"
           branch: main
