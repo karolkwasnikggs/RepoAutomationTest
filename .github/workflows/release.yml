@@ -34,24 +34,20 @@ jobs:
             echo "FIRST_RELEASE=false" >> $GITHUB_ENV
           fi
 
-      - name: Build release SQL and update map
+      - name: Build release SQL and map HTML
         run: |
           set -e -x
           mkdir -p releases .releases/qa map
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           OUTFILE="releases/${CUR_TAG}.sql"
+          MAP_HTML="map/index.html"
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           echo "/********************************************/" > "$OUTFILE"
           echo "-- AUTO RELEASE: ${CUR_TAG}" >> "$OUTFILE"
           echo "/********************************************/" >> "$OUTFILE"
           echo "" >> "$OUTFILE"
-
-          MAP_FILE="map/map.json"
-          TMP_MAP="map/tmp.json"
-          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          if [ ! -f "$MAP_FILE" ]; then echo "[]" > "$MAP_FILE"; fi
 
           if [[ "$PREFIX" == "qa" ]]; then
             echo "-- QA RELEASE" >> "$OUTFILE"
@@ -71,11 +67,6 @@ jobs:
                 echo -e "\n\n" >> "$OUTFILE"
               fi
             done
-
-            FILES_JSON=$(printf '%s\n' $CHANGED_FILES | jq -R . | jq -s .)
-            cp "$MAP_FILE" "$TMP_MAP"
-            jq --arg tag "$CUR_TAG" --arg time "$NOW" --arg type "qa" --argjson files "$FILES_JSON" \
-              '. += [{"tag": $tag, "timestamp": $time, "type": $type, "files": $files}]' "$TMP_MAP" > "$MAP_FILE"
 
           elif [[ "$PREFIX" == "prod" ]]; then
             echo "-- PROD RELEASE" >> "$OUTFILE"
@@ -116,16 +107,19 @@ jobs:
                 echo -e "\n\n" >> "$OUTFILE"
               fi
             done < "$TEMP_LIST.uniq"
-
-            FILES_JSON=$(cat "$TEMP_LIST.uniq" | jq -R . | jq -s .)
-            QA_JSON=$(printf '%s\n' "${INCLUDED_QA[@]}" | jq -R . | jq -s .)
-            cp "$MAP_FILE" "$TMP_MAP"
-            jq --arg tag "$CUR_TAG" --arg time "$NOW" --arg type "prod" --argjson files "$FILES_JSON" --argjson included_qa "$QA_JSON" \
-              '. += [{"tag": $tag, "timestamp": $time, "type": $type, "files": $files, "included_qa": $included_qa}]' "$TMP_MAP" > "$MAP_FILE"
           fi
 
-          echo "--- map.json content ---"
-          cat "$MAP_FILE"
+          # generate map/index.html
+          echo "<html><head><title>Release Map</title></head><body><h1>Release Map</h1><ul>" > "$MAP_HTML"
+          for tagfile in $(ls .releases/qa/*.txt 2>/dev/null | sort); do
+            tag=$(basename "$tagfile" .txt)
+            echo "<li><strong>$tag</strong><ul>" >> "$MAP_HTML"
+            while read -r f; do
+              echo "<li>$f</li>" >> "$MAP_HTML"
+            done < "$tagfile"
+            echo "</ul></li>" >> "$MAP_HTML"
+          done
+          echo "</ul></body></html>" >> "$MAP_HTML"
 
       - name: Commit QA file list if needed
         if: env.PREFIX == 'qa'
@@ -135,11 +129,11 @@ jobs:
           file_pattern: ".releases/qa/*.txt"
           branch: main
 
-      - name: Commit release and map
+      - name: Commit release file and map
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "auto release ${{ env.CURRENT_TAG }}"
           file_pattern: |
             releases/*.sql
-            map/map.json
+            map/index.html
           branch: main
