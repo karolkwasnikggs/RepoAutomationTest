@@ -2,16 +2,72 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>QA & PROD Release Timeline</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <title>Release Timeline Visual Map</title>
   <style>
-    body { font-family: sans-serif; padding: 40px; background: #f5f5f5; }
-    canvas { max-width: 1000px; margin: auto; display: block; background: white; border-radius: 12px; padding: 20px; }
+    body {
+      font-family: sans-serif;
+      background: #f5f5f5;
+      padding: 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 {
+      margin-bottom: 30px;
+    }
+    .timeline {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    .box {
+      padding: 10px 15px;
+      border-radius: 6px;
+      color: white;
+      font-weight: bold;
+      position: relative;
+      cursor: pointer;
+    }
+    .box.qa { background-color: #4e79a7; }
+    .box.prod { background-color: #f28e2c; }
+    .arrow::after {
+      content: "\2192";
+      font-size: 24px;
+      color: #888;
+      margin: 0 10px;
+    }
+    .tooltip {
+      visibility: hidden;
+      background-color: #333;
+      color: #fff;
+      text-align: left;
+      border-radius: 4px;
+      padding: 6px;
+      position: absolute;
+      z-index: 1;
+      bottom: 125%;
+      left: 50%;
+      transform: translateX(-50%);
+      opacity: 0;
+      transition: opacity 0.3s;
+      white-space: pre-wrap;
+      max-width: 300px;
+    }
+    .box:hover .tooltip {
+      visibility: visible;
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
-  <h1 style="text-align: center;">QA & PROD Linear Release Timeline</h1>
-  <canvas id="releaseTimeline" width="1000" height="200"></canvas>
+  <h1>Release Timeline</h1>
+  <div class="timeline" id="timeline"></div>
 
   <script>
     const owner = "karolkwasnikggs";
@@ -22,62 +78,37 @@
       const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.releases/${folder}?ref=${branch}`);
       if (!res.ok) return [];
       const data = await res.json();
-      return data.filter(f => f.name.endsWith('.txt'))
-        .map(f => {
-          const tag = f.name.replace('.txt', '');
-          const timestamp = parseInt(f.name.match(/\d+/)?.[0] || '0', 10);
-          return { tag, timestamp, type: folder };
-        });
+      return await Promise.all(data.filter(f => f.name.endsWith('.txt')).map(async f => {
+        const tag = f.name.replace('.txt', '');
+        const timestamp = parseInt(f.name.match(/\d+/)?.[0] || '0', 10);
+        const contentRes = await fetch(f.download_url);
+        const content = await contentRes.ok ? contentRes.text() : "";
+        return { tag, timestamp, type: folder, content };
+      }));
     }
 
-    async function drawLinearTimeline() {
+    async function renderTimeline() {
       const qa = await getTags("qa");
       const prod = await getTags("prod");
       const all = [...qa, ...prod].sort((a, b) => a.timestamp - b.timestamp);
 
-      const labels = all.map(t => t.tag);
-      const colors = all.map(t => t.type === 'qa' ? '#4e79a7' : '#f28e2c');
+      const timeline = document.getElementById("timeline");
 
-      new Chart(document.getElementById('releaseTimeline'), {
-        type: 'bar',
-        data: {
-          labels,
-          datasets: [{
-            label: 'Release',
-            data: Array(labels.length).fill(1),
-            backgroundColor: colors,
-            borderSkipped: false,
-            borderRadius: 5
-          }]
-        },
-        options: {
-          indexAxis: 'x',
-          responsive: true,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                label: ctx => ` ${ctx.label} (${all[ctx.dataIndex].type.toUpperCase()})`
-              }
-            }
-          },
-          scales: {
-            x: {
-              ticks: {
-                autoSkip: false,
-                maxRotation: 90,
-                minRotation: 45
-              }
-            },
-            y: {
-              display: false
-            }
-          }
+      all.forEach((entry, index) => {
+        const div = document.createElement("div");
+        div.className = `box ${entry.type}`;
+        div.innerHTML = `${entry.tag}<div class="tooltip">${entry.content || "(empty)"}</div>`;
+        timeline.appendChild(div);
+
+        if (index < all.length - 1) {
+          const arrow = document.createElement("div");
+          arrow.className = "arrow";
+          timeline.appendChild(arrow);
         }
       });
     }
 
-    drawLinearTimeline();
+    renderTimeline();
   </script>
 </body>
 </html>
