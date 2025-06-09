@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Release Timeline Map</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <meta charset="UTF-8">
+  <title>QA and PROD Timeline</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     body { font-family: sans-serif; padding: 20px; }
     canvas { max-width: 100%; }
@@ -12,91 +11,79 @@
 </head>
 <body>
   <h1>QA and PROD Release Timeline</h1>
-  <canvas id="timelineChart" height="600"></canvas>
+  <canvas id="releaseChart" width="900" height="600"></canvas>
 
   <script>
     const owner = "karolkwasnikggs";
     const repo = "RepoAutomationTest";
     const branch = "main";
 
-    async function getFiles(folder) {
-      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.releases/${folder}?ref=${branch}`);
+    async function getReleases(type) {
+      const url = `https://api.github.com/repos/${owner}/${repo}/contents/.releases/${type}?ref=${branch}`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
       const data = await res.json();
-      return data.filter(f => f.name.endsWith(".txt"))
-                 .map(f => ({
-                   tag: f.name.replace(".txt", ""),
-                   timestamp: parseInt(f.name.match(/\\d+/)[0], 10),
-                   folder
-                 }));
+      return data
+        .filter(f => f.name.endsWith('.txt'))
+        .map(f => {
+          const date = f.name.match(/\\d+/)?.[0];
+          return {
+            tag: f.name.replace('.txt', ''),
+            date: date,
+            label: `${type.toUpperCase()} - ${date}`,
+            type: type
+          };
+        });
     }
 
-    async function drawTimeline() {
-      const qa = await getFiles("qa");
-      const prod = await getFiles("prod");
+    async function drawChart() {
+      const qa = await getReleases("qa");
+      const prod = await getReleases("prod");
 
-      const all = [...qa, ...prod].sort((a, b) => a.timestamp - b.timestamp);
+      const all = [...qa, ...prod]
+        .filter(e => e.date)
+        .sort((a, b) => a.date.localeCompare(b.date));
 
-      const labels = all.map(f => f.tag);
-      const datasets = [
-        {
-          label: "QA",
-          data: all.map(f => f.folder === "qa" ? f.timestamp : null),
-          backgroundColor: "#4e79a7",
-          datalabels: {
-            anchor: 'end',
-            align: 'top',
-            color: '#4e79a7',
-            formatter: (_, ctx) => all[ctx.dataIndex].folder === "qa" ? all[ctx.dataIndex].tag : ''
-          }
-        },
-        {
-          label: "PROD",
-          data: all.map(f => f.folder === "prod" ? f.timestamp : null),
-          backgroundColor: "#f28e2c",
-          datalabels: {
-            anchor: 'start',
-            align: 'bottom',
-            color: '#f28e2c',
-            formatter: (_, ctx) => all[ctx.dataIndex].folder === "prod" ? all[ctx.dataIndex].tag : ''
-          }
-        }
-      ];
+      const labels = all.map(e => e.label);
+      const data = all.map((_, i) => i + 1); // Y values
+      const backgroundColors = all.map(e => e.type === "qa" ? "#4e79a7" : "#f28e2c");
 
-      new Chart(document.getElementById('timelineChart'), {
+      const ctx = document.getElementById("releaseChart").getContext("2d");
+      new Chart(ctx, {
         type: 'bar',
         data: {
           labels,
-          datasets
+          datasets: [{
+            label: 'Releases',
+            data,
+            backgroundColor: backgroundColors
+          }]
         },
         options: {
           indexAxis: 'y',
-          plugins: {
-            legend: { display: false },
-            datalabels: {
-              display: true
-            },
-            tooltip: {
-              callbacks: {
-                label: ctx => ctx.raw ? `${ctx.dataset.label}: ${ctx.label}` : ''
+          responsive: true,
+          scales: {
+            x: { display: false },
+            y: {
+              ticks: {
+                autoSkip: false,
+                font: { size: 14 }
               }
             }
           },
-          scales: {
-            x: {
-              display: false
-            },
-            y: {
-              ticks: {
-                callback: (val, idx) => all[idx].tag
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => ctx.label
               }
             }
           }
-        },
-        plugins: [ChartDataLabels]
+        }
       });
     }
 
-    drawTimeline();
+    drawChart();
   </script>
 </body>
 </html>
