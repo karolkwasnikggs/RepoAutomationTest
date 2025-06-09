@@ -34,66 +34,98 @@ jobs:
             echo "FIRST_RELEASE=false" >> $GITHUB_ENV
           fi
 
-      - name: Build release SQL and map HTML
+      - name: Build release SQL file and index.html
         run: |
-          set -e -x
-          mkdir -p releases .releases/qa docs
+          mkdir -p releases .releases/qa .releases/prod docs
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           OUTFILE="releases/${CUR_TAG}.sql"
-          QA_FILE=".releases/qa/${CUR_TAG}.txt"
-          MAP_HTML="docs/index.html"
-          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           echo "/********************************************/" > "$OUTFILE"
           echo "-- AUTO RELEASE: ${CUR_TAG}" >> "$OUTFILE"
           echo "/********************************************/" >> "$OUTFILE"
           echo "" >> "$OUTFILE"
 
-          : > "$QA_FILE"
-
           if [[ "$PREFIX" == "qa" ]]; then
-            echo "-- QA RELEASE" >> "$OUTFILE"
+            echo "----------------------------------------------" >> "$OUTFILE"
+            echo "-- SECTION: MIGRATIONS (changes/)" >> "$OUTFILE"
+            echo "----------------------------------------------" >> "$OUTFILE"
 
+            CHANGED_FILES=""
             if [ "$FIRST_RELEASE" = "false" ]; then
-              CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes schema -type f -name "*.sql") || true)
+              CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes -type f -name "*.sql") $(find schema -type f -name "*.sql") || true)
             else
-              CHANGED_FILES=$(find changes schema -type f -name "*.sql" || true)
+              CHANGED_FILES=$(find changes -type f -name "*.sql"; find schema -type f -name "*.sql" || true)
             fi
 
-            echo "$CHANGED_FILES" >> "$QA_FILE"
+            echo "$CHANGED_FILES" > ".releases/qa/${CUR_TAG}.txt"
 
             for f in $CHANGED_FILES; do
               if [[ "$f" == changes/* && -f "$f" ]]; then
                 echo "-- FILE: $f" >> "$OUTFILE"
+                echo "" >> "$OUTFILE"
                 cat "$f" >> "$OUTFILE"
                 echo -e "\n\n" >> "$OUTFILE"
               fi
             done
 
+            echo "----------------------------------------------" >> "$OUTFILE"
+            echo "-- SECTION: SCHEMA (FULL if first release)" >> "$OUTFILE"
+            echo "----------------------------------------------" >> "$OUTFILE"
+
+            if [ "$FIRST_RELEASE" = "true" ]; then
+              for f in $(find schema -type f -name "*.sql" || true); do
+                echo "-- SCHEMA OBJECT: $f" >> "$OUTFILE"
+                cat "$f" >> "$OUTFILE"
+                echo -e "\n\n" >> "$OUTFILE"
+              done
+            else
+              FILES_IN_SCHEMA=$(find schema -type f -name "*.sql" || true)
+              NEW_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- $FILES_IN_SCHEMA | grep '^A' | cut -f2 || true)
+              MOD_SCHEMA=$(git diff --name-status "$PREVIOUS_TAG"...HEAD -- $FILES_IN_SCHEMA | grep '^M' | cut -f2 || true)
+
+              for f in $NEW_SCHEMA; do
+                if [ -f "$f" ]; then
+                  echo "-- NEW OBJECT: $f" >> "$OUTFILE"
+                  echo "" >> "$OUTFILE"
+                  cat "$f" >> "$OUTFILE"
+                  echo -e "\n\n" >> "$OUTFILE"
+                fi
+              done
+
+              echo "-- MODIFIED OBJECTS (schema/) AS COMMENTS" >> "$OUTFILE"
+              for f in $MOD_SCHEMA; do
+                echo "-- MODIFIED OBJECT: $f" >> "$OUTFILE"
+                echo "-- BEGIN DIFF --------------------------------" >> "$OUTFILE"
+                git diff "$PREVIOUS_TAG"...HEAD -- "$f" | sed 's/^/-- /' >> "$OUTFILE"
+                echo "-- END DIFF ----------------------------------" >> "$OUTFILE"
+                echo -e "\n\n" >> "$OUTFILE"
+              done
+            fi
+
           elif [[ "$PREFIX" == "prod" ]]; then
-            echo "-- PROD RELEASE" >> "$OUTFILE"
+            echo "----------------------------------------------" >> "$OUTFILE"
+            echo "-- SECTION: MIGRATIONS (from QA releases)" >> "$OUTFILE"
+            echo "----------------------------------------------" >> "$OUTFILE"
 
             PREV_PROD=$(git tag --list 'prod-*' | sort | grep -v "$CUR_TAG" | tail -1)
-            TEMP_LIST=".temp_files.txt"
-            : > "$TEMP_LIST"
-            INCLUDED_QA=()
+            TEMP_LIST=".temp_qa_files.txt"
+            > "$TEMP_LIST"
 
             for qa_file in $(ls .releases/qa/*.txt 2>/dev/null | sort); do
               QA_TAG=$(basename "$qa_file" .txt)
               QA_COMMIT=$(git rev-list -n 1 "$QA_TAG")
               if [ -n "$PREV_PROD" ]; then
-                PREV_COMMIT=$(git rev-list -n 1 "$PREV_PROD")
-                if git merge-base --is-ancestor "$QA_COMMIT" "$PREV_COMMIT"; then
+                PREV_PROD_COMMIT=$(git rev-list -n 1 "$PREV_PROD")
+                if git merge-base --is-ancestor "$QA_COMMIT" "$PREV_PROD_COMMIT"; then
                   continue
                 fi
               fi
-              INCLUDED_QA+=("$QA_TAG")
               cat "$qa_file" >> "$TEMP_LIST"
+              cp "$qa_file" ".releases/prod/${CUR_TAG}.txt"
             done
 
             sort -u "$TEMP_LIST" > "$TEMP_LIST.uniq"
-            cat "$TEMP_LIST.uniq" >> "$QA_FILE"
 
             while read -r f; do
               if [[ "$f" == changes/* && -f "$f" ]]; then
@@ -103,7 +135,10 @@ jobs:
               fi
             done < "$TEMP_LIST.uniq"
 
-            echo "-- SCHEMA CHANGES" >> "$OUTFILE"
+            echo "----------------------------------------------" >> "$OUTFILE"
+            echo "-- SECTION: SCHEMA (from QA releases)" >> "$OUTFILE"
+            echo "----------------------------------------------" >> "$OUTFILE"
+
             while read -r f; do
               if [[ "$f" == schema/* && -f "$f" ]]; then
                 echo "-- OBJECT: $f" >> "$OUTFILE"
@@ -113,24 +148,24 @@ jobs:
             done < "$TEMP_LIST.uniq"
           fi
 
-          # Always regenerate HTML map
-          echo "<html><head><title>Release Map</title></head><body><h1>Release Map</h1><ul>" > "$MAP_HTML"
-          for tagfile in $(ls .releases/qa/*.txt 2>/dev/null | sort); do
+          echo "<html><head><title>Release Map</title></head><body><h1>Release Map</h1><ul>" > docs/index.html
+          for tagfile in $(ls .releases/qa/*.txt .releases/prod/*.txt 2>/dev/null | sort); do
             tag=$(basename "$tagfile" .txt)
-            echo "<li><strong>$tag</strong><ul>" >> "$MAP_HTML"
+            echo "<li><strong>$tag</strong><ul>" >> docs/index.html
             while read -r f; do
-              echo "<li>$f</li>" >> "$MAP_HTML"
+              echo "<li>$f</li>" >> docs/index.html
             done < "$tagfile"
-            echo "</ul></li>" >> "$MAP_HTML"
+            echo "</ul></li>" >> docs/index.html
           done
-          echo "</ul></body></html>" >> "$MAP_HTML"
+          echo "</ul></body></html>" >> docs/index.html
 
-      - name: Commit QA file list and map
+      - name: Commit release, QA/PROD file list and index
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "save release and map for ${{ env.CURRENT_TAG }}"
+          commit_message: "auto release ${{ env.CURRENT_TAG }}"
           file_pattern: |
             .releases/qa/*.txt
+            .releases/prod/*.txt
             releases/*.sql
             docs/index.html
           branch: main
