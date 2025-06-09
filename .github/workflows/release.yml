@@ -20,6 +20,7 @@ jobs:
           fetch-tags: true
 
       - name: Identify current and previous tag
+        id: taginfo
         run: |
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           echo "CURRENT_TAG=$CUR_TAG" >> $GITHUB_ENV
@@ -36,9 +37,8 @@ jobs:
             echo "FIRST_RELEASE=false" >> $GITHUB_ENV
           fi
 
-      - name: Build release SQL + register map
+      - name: Build release SQL + update map
         run: |
-          set -e
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           OUTFILE="releases/${CUR_TAG}.sql"
@@ -56,10 +56,11 @@ jobs:
 
           if [[ "$PREFIX" == "qa" ]]; then
             echo "-- QA RELEASE" >> "$OUTFILE"
+
             if [ "$FIRST_RELEASE" = "false" ]; then
-              CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes schema -type f -name "*.sql") || true)
+              CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes -type f -name "*.sql") $(find schema -type f -name "*.sql") || true)
             else
-              CHANGED_FILES=$(find changes schema -type f -name "*.sql" || true)
+              CHANGED_FILES=$(find changes -type f -name "*.sql"; find schema -type f -name "*.sql" || true)
             fi
 
             echo "$CHANGED_FILES" > ".releases/qa/${CUR_TAG}.txt"
@@ -79,7 +80,7 @@ jobs:
           elif [[ "$PREFIX" == "prod" ]]; then
             echo "-- PROD RELEASE" >> "$OUTFILE"
             PREV_PROD=$(git tag --list 'prod-*' | sort | grep -v "$CUR_TAG" | tail -1)
-            TEMP_LIST=".temp_files.txt"
+            TEMP_LIST=".temp_qa_files.txt"
             > "$TEMP_LIST"
             INCLUDED_QA=()
 
@@ -87,8 +88,8 @@ jobs:
               QA_TAG=$(basename "$qa_file" .txt)
               QA_COMMIT=$(git rev-list -n 1 "$QA_TAG")
               if [ -n "$PREV_PROD" ]; then
-                PREV_COMMIT=$(git rev-list -n 1 "$PREV_PROD")
-                if git merge-base --is-ancestor "$QA_COMMIT" "$PREV_COMMIT"; then
+                PREV_PROD_COMMIT=$(git rev-list -n 1 "$PREV_PROD")
+                if git merge-base --is-ancestor "$QA_COMMIT" "$PREV_PROD_COMMIT"; then
                   continue
                 fi
               fi
@@ -106,7 +107,6 @@ jobs:
               fi
             done < "$TEMP_LIST.uniq"
 
-            echo "-- SCHEMA CHANGES" >> "$OUTFILE"
             while read -r f; do
               if [[ "$f" == schema/* && -f "$f" ]]; then
                 echo "-- OBJECT: $f" >> "$OUTFILE"
@@ -119,6 +119,7 @@ jobs:
             QA_JSON=$(printf '%s\n' "${INCLUDED_QA[@]}" | jq -R . | jq -s .)
             jq --arg tag "$CUR_TAG" --arg time "$NOW" --arg type "prod" --argjson files "$FILES_JSON" --argjson included_qa "$QA_JSON" \
               '. += [{"tag": $tag, "timestamp": $time, "type": $type, "files": $files, "included_qa": $included_qa}]' "$MAP_FILE" > "$TMP_MAP" && mv "$TMP_MAP" "$MAP_FILE"
+          fi
 
       - name: Commit QA file list if needed
         if: env.PREFIX == 'qa'
@@ -128,7 +129,7 @@ jobs:
           file_pattern: ".releases/qa/*.txt"
           branch: main
 
-      - name: Commit release + map
+      - name: Commit release file and map
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "auto release ${{ env.CURRENT_TAG }}"
