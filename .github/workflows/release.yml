@@ -38,25 +38,24 @@ jobs:
 
       - name: Build release SQL + register map
         run: |
+          set -e
           CUR_TAG="${GITHUB_REF#refs/tags/}"
           PREFIX=$(echo "$CUR_TAG" | cut -d'-' -f1)
           OUTFILE="releases/${CUR_TAG}.sql"
-          mkdir -p releases .releases/qa release-map
+          mkdir -p releases .releases/qa
 
           echo "/********************************************/" > "$OUTFILE"
           echo "-- AUTO RELEASE: ${CUR_TAG}" >> "$OUTFILE"
           echo "/********************************************/" >> "$OUTFILE"
           echo "" >> "$OUTFILE"
 
-          MAP_FILE="release-map/map.json"
-          TMP_MAP="release-map/map.tmp.json"
+          MAP_FILE="map.json"
+          TMP_MAP="map.tmp.json"
           NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
           if [ ! -f "$MAP_FILE" ]; then echo "[]" > "$MAP_FILE"; fi
 
           if [[ "$PREFIX" == "qa" ]]; then
             echo "-- QA RELEASE" >> "$OUTFILE"
-
             if [ "$FIRST_RELEASE" = "false" ]; then
               CHANGED_FILES=$(git diff --name-only --diff-filter=AM "$PREVIOUS_TAG"...HEAD -- $(find changes schema -type f -name "*.sql") || true)
             else
@@ -79,7 +78,6 @@ jobs:
 
           elif [[ "$PREFIX" == "prod" ]]; then
             echo "-- PROD RELEASE" >> "$OUTFILE"
-
             PREV_PROD=$(git tag --list 'prod-*' | sort | grep -v "$CUR_TAG" | tail -1)
             TEMP_LIST=".temp_files.txt"
             > "$TEMP_LIST"
@@ -121,7 +119,6 @@ jobs:
             QA_JSON=$(printf '%s\n' "${INCLUDED_QA[@]}" | jq -R . | jq -s .)
             jq --arg tag "$CUR_TAG" --arg time "$NOW" --arg type "prod" --argjson files "$FILES_JSON" --argjson included_qa "$QA_JSON" \
               '. += [{"tag": $tag, "timestamp": $time, "type": $type, "files": $files, "included_qa": $included_qa}]' "$MAP_FILE" > "$TMP_MAP" && mv "$TMP_MAP" "$MAP_FILE"
-          fi
 
       - name: Commit QA file list if needed
         if: env.PREFIX == 'qa'
@@ -137,5 +134,5 @@ jobs:
           commit_message: "auto release ${{ env.CURRENT_TAG }}"
           file_pattern: |
             releases/*.sql
-            release-map/map.json
+            map.json
           branch: main
