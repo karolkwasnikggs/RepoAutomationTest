@@ -34,7 +34,7 @@ jobs:
             echo "FIRST_RELEASE=false" >> $GITHUB_ENV
           fi
 
-      - name: Build release SQL file and track files
+      - name: Build release SQL file
         run: |
           mkdir -p releases
           CUR_TAG="${GITHUB_REF#refs/tags/}"
@@ -161,39 +161,25 @@ jobs:
             done < "$TEMP_LIST.uniq"
           fi
 
-      - name: Commit release files
+      - name: Commit QA file list if needed
+        if: env.PREFIX == 'qa'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "save QA release file list: ${{ env.CURRENT_TAG }}"
+          file_pattern: ".releases/qa/*.txt"
+          branch: main
+
+      - name: Commit PROD file list if needed
+        if: env.PREFIX == 'prod'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "save PROD release file list: ${{ env.CURRENT_TAG }}"
+          file_pattern: ".releases/prod/*.txt"
+          branch: main
+
+      - name: Commit release file to main
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "auto release ${{ env.CURRENT_TAG }}"
-          file_pattern: |
-            .releases/**/*.txt
-            releases/*.sql
-          branch: main
-
-      - name: Generate releases.json
-        run: |
-          mkdir -p .releases
-          echo "[" > .releases/releases.json
-          for folder in qa prod; do
-            for f in .releases/$folder/*.txt; do
-              [ -f "$f" ] || continue
-              tag=$(basename "$f" .txt)
-              timestamp=$(echo "$tag" | grep -o '[0-9]\\+')
-              content=$(sed ':a;N;$!ba;s/\n/\\n/g' "$f" | sed 's/"/\\"/g')
-              echo "  {" >> .releases/releases.json
-              echo "    \"tag\": \"$tag\"," >> .releases/releases.json
-              echo "    \"type\": \"$folder\"," >> .releases/releases.json
-              echo "    \"timestamp\": $timestamp," >> .releases/releases.json
-              echo "    \"content\": \"$content\"" >> .releases/releases.json
-              echo "  }," >> .releases/releases.json
-            done
-          done
-          sed -i '$ s/},/}/' .releases/releases.json
-          echo "]" >> .releases/releases.json
-
-      - name: Commit releases.json
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "update releases.json"
-          file_pattern: ".releases/releases.json"
+          file_pattern: "releases/*.sql"
           branch: main
